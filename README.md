@@ -34,3 +34,33 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Stock iPhone Duo (`/stock-iphone`)
+
+Live in-store pickup availability for the iPhone Duo, based on Apple's public
+`shop/retail/pickup-message` endpoint and proxied by `/api/apple-stock`. The endpoint is
+undocumented and can change at any time.
+
+### Background alerts (browser closed)
+
+1. On the page, "Activer les alertes en arrière-plan" registers `public/sw.js`, subscribes
+   to Web Push and saves a *watch* (target + channels) through `POST /api/watches`.
+2. A scheduler calls `GET /api/cron/stock-check` with `Authorization: Bearer $CRON_SECRET`.
+   Each watch is checked, and an alert is sent once per store × configuration that
+   becomes available (it re-arms when that pair goes out of stock again).
+3. Channels: Web Push (VAPID), ntfy.sh (phone fallback), and optional e-mail through Resend.
+
+Environment variables are listed in `.env.example`. To go live on Vercel:
+
+- **Storage:** add *Upstash for Redis* from the Vercel Marketplace to the project. It sets
+  `KV_REST_API_URL` and `KV_REST_API_TOKEN`.
+- **Web Push:** run `npx web-push generate-vapid-keys`, then set `VAPID_PUBLIC_KEY`,
+  `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT`.
+- **Cron secret:** set `CRON_SECRET` to a long random string.
+- **Scheduler:**
+  - Hobby plan: the `.github/workflows/stock-check.yml` workflow runs every 5 minutes.
+    Add the repository secrets `STOCK_CHECK_URL`
+    (`https://<domaine>/api/cron/stock-check`) and `CRON_SECRET`.
+  - Pro plan: Vercel Cron can be used instead. Add
+    `{"crons":[{"path":"/api/cron/stock-check","schedule":"*/5 * * * *"}]}` to `vercel.json`.
+- **E-mail (optional):** set `RESEND_API_KEY` and `ALERT_EMAIL_FROM`.

@@ -17,11 +17,12 @@ import {
   notificationState,
   playChime,
   requestNotifications,
-  sendNtfy,
   showNotification,
   type NotificationState,
 } from "@/lib/apple-stock/notify";
+import { sendNtfy } from "@/lib/apple-stock/ntfy";
 import type { StockError, StockResponse } from "@/lib/apple-stock/types";
+import BackgroundAlerts, { type WatchTarget } from "./BackgroundAlerts";
 import StoreCard from "./StoreCard";
 
 const SETTINGS_KEY = "apple-stock-tracker:v1";
@@ -179,7 +180,10 @@ function Tracker() {
       .filter((v) => settings.colors.includes(v.color) && settings.storages.includes(v.storage))
       .slice(0, MAX_VARIANTS);
   }, [countryVariants, model.reference, settings.colors, settings.storages]);
-  const countryRegions = REGIONS.filter((r) => r.country === country.code);
+  const countryRegions = useMemo(
+    () => REGIONS.filter((r) => r.country === country.code),
+    [country.code],
+  );
   const activeRegion = countryRegions.find((r) => r.id === settings.region);
   const hasTarget = Boolean(activeRegion || settings.location.trim());
   const tooMany =
@@ -203,13 +207,29 @@ function Tracker() {
   const pushLog = (entry: Omit<LogEntry, "at">) =>
     setLog((l) => [{ ...entry, at: new Date() }, ...l].slice(0, 30));
 
-  const latest = useRef({ settings, selectedVariants });
+  const [backgroundActive, setBackgroundActive] = useState(false);
+  const latest = useRef({ settings, selectedVariants, backgroundActive });
   useEffect(() => {
-    latest.current = { settings, selectedVariants };
+    latest.current = { settings, selectedVariants, backgroundActive };
   });
 
+  const watchTarget: WatchTarget = useMemo(() => {
+    const region = countryRegions.find((r) => r.id === settings.region);
+    return {
+      country: settings.country,
+      parts: selectedVariants.map((v) => v.partNumber),
+      region: region?.id ?? null,
+      location: region ? "" : settings.location.trim(),
+      excludedStores: settings.excludedStores,
+      labels: Object.fromEntries(
+        selectedVariants.map((v) => [v.partNumber, `${model.name.replace(" (témoin)", "")} ${variantLabel(v.partNumber, v.partNumber)}`]),
+      ),
+      ntfyTopic: settings.ntfyTopic.trim(),
+    };
+  }, [countryRegions, settings, selectedVariants, model.name, variantLabel]);
+
   const check = useCallback(async (): Promise<number | undefined> => {
-    const { settings: s, selectedVariants: variants } = latest.current;
+    const { settings: s, selectedVariants: variants, backgroundActive: serverAlerts } = latest.current;
     const region = REGIONS.find((r) => r.id === s.region && r.country === s.country);
     if (!variants.length || (!region && !s.location.trim())) return;
     setLoading(true);
@@ -247,9 +267,12 @@ function Tracker() {
           fresh.length === 1
             ? `Apple ${first.store.name} — ${first.part.quote}`
             : `${fresh.length} disponibilités : ${[...new Set(fresh.map((f) => f.store.name))].join(", ")}`;
-        showNotification(title, body, first.store.url);
+        // The server already pushes when background alerts are on; avoid duplicates.
+        if (!serverAlerts) {
+          showNotification(title, body, first.store.url);
+          sendNtfy(s.ntfyTopic.trim(), title, body, first.store.url).catch(() => {});
+        }
         if (s.sound) playChime();
-        sendNtfy(s.ntfyTopic.trim(), title, body, first.store.url).catch(() => {});
         pushLog({ kind: "alert", text: `${title} ${body}` });
       } else {
         pushLog({
@@ -584,6 +607,7 @@ function Tracker() {
               </div>
             </Section>
           </div>
+          <BackgroundAlerts target={watchTarget} onActiveChange={setBackgroundActive} />
         </aside>
 
         <section className="min-w-0 space-y-5">
