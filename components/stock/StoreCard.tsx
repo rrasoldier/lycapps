@@ -7,7 +7,7 @@ const STATUS_STYLES: Record<AvailabilityStatus, { label: string; pill: string; d
     dot: "bg-emerald-400 shadow-[0_0_12px] shadow-emerald-400",
   },
   "not-yet": {
-    label: "Pas encore en magasin",
+    label: "Pas encore",
     pill: "bg-amber-400/10 text-amber-200 ring-amber-400/25",
     dot: "bg-amber-300",
   },
@@ -56,29 +56,26 @@ export default function StoreCard({
         {store.parts.map((part) => {
           const s = STATUS_STYLES[part.status];
           return (
-            <li
-              key={part.partNumber}
-              className="flex items-center justify-between gap-3 rounded-xl bg-zinc-950/60 px-3 py-2.5"
-            >
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-zinc-100">
+            <li key={part.partNumber} className="rounded-xl bg-zinc-950/60 px-3 py-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <p className="min-w-0 text-sm font-medium text-zinc-100">
                   {variantLabel(part.partNumber, part.title)}
                 </p>
-                <p className="truncate text-xs text-zinc-500">{part.quote || part.partNumber}</p>
+                <span
+                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${s.pill}`}
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
+                  {s.label}
+                </span>
               </div>
-              <span
-                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${s.pill}`}
-              >
-                <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
-                {s.label}
-              </span>
+              <p className="mt-1 text-xs text-zinc-500">{part.quote || part.partNumber}</p>
             </li>
           );
         })}
       </ul>
 
       <footer className="mt-4 flex items-center justify-between gap-2 text-sm">
-        <label className="flex cursor-pointer select-none items-center gap-2 text-zinc-400">
+        <label className="flex min-w-0 cursor-pointer select-none items-center gap-2 text-zinc-400">
           <input
             type="checkbox"
             checked={watched}
@@ -92,7 +89,7 @@ export default function StoreCard({
             href={store.url}
             target="_blank"
             rel="noreferrer"
-            className="text-sky-400 transition hover:text-sky-300"
+            className="whitespace-nowrap text-sky-400 transition hover:text-sky-300"
           >
             Fiche magasin ↗
           </a>

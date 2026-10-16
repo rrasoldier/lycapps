@@ -80,7 +80,7 @@ function Shell({ children }: { children?: React.ReactNode }) {
       <div className="pointer-events-none absolute -right-40 top-40 h-96 w-96 rounded-full bg-violet-500/10 blur-3xl" />
       <main className="relative mx-auto max-w-6xl px-5 pb-24 pt-14 sm:px-8">
         <div className="mb-10">
-          <Link href="/" className="text-sm text-zinc-500 transition hover:text-zinc-300">
+          <Link href="/" className="block w-fit text-sm text-zinc-500 transition hover:text-zinc-300">
             ← Lycapps
           </Link>
           <p className="mt-6 inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-900/70 px-3 py-1 text-xs font-medium text-zinc-300">
@@ -188,7 +188,7 @@ function Tracker() {
       const v = countryVariants.find((x) => x.partNumber === partNumber);
       if (!v) return fallback;
       const color = model.colors.find((c) => c.id === v.color)?.label;
-      return `${model.name.replace(" (témoin)", "")} ${STORAGE_LABELS[v.storage]} · ${color}`;
+      return `${STORAGE_LABELS[v.storage]} · ${color}`;
     },
     [countryVariants, model],
   );
@@ -196,13 +196,13 @@ function Tracker() {
   const pushLog = (entry: Omit<LogEntry, "at">) =>
     setLog((l) => [{ ...entry, at: new Date() }, ...l].slice(0, 30));
 
-  const latest = useRef({ settings, selectedVariants, variantLabel });
+  const latest = useRef({ settings, selectedVariants });
   useEffect(() => {
-    latest.current = { settings, selectedVariants, variantLabel };
+    latest.current = { settings, selectedVariants };
   });
 
   const check = useCallback(async (): Promise<number | undefined> => {
-    const { settings: s, selectedVariants: variants, variantLabel: label } = latest.current;
+    const { settings: s, selectedVariants: variants } = latest.current;
     if (!variants.length || !s.location.trim()) return;
     setLoading(true);
     try {
@@ -234,7 +234,7 @@ function Tracker() {
 
       if (fresh.length) {
         const first = fresh[0];
-        const title = `${label(first.part.partNumber, first.part.title)} disponible !`;
+        const title = `${first.part.title} disponible !`;
         const body =
           fresh.length === 1
             ? `Apple ${first.store.name} — ${first.part.quote}`
@@ -592,7 +592,7 @@ function Tracker() {
           )}
 
           {data ? (
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
               {data.stores.map((store) => (
                 <StoreCard
                   key={store.storeNumber}
@@ -606,7 +606,7 @@ function Tracker() {
               ))}
             </div>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
               {Array.from({ length: 4 }, (_, i) => (
                 <div
                   key={i}
