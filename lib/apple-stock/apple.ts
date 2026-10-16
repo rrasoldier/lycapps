@@ -244,7 +244,7 @@ export async function getRegionStock(
     .sort((a, b) => a.km - b.km)
     .map(({ store, km }) => ({
       ...store,
-      distance: `${km.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} km de ${region.center.label}`,
+      distance: `${km.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} km`,
     }));
 
   return {
