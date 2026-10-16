@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import {
   COUNTRIES,
   MODELS,
+  REGIONS,
   STORAGE_LABELS,
   getCountry,
   type ColorId,
@@ -33,6 +34,8 @@ interface Settings {
   colors: ColorId[];
   storages: Storage[];
   location: string;
+  /** When set, the whole region is watched instead of the area around `location`. */
+  region: string | null;
   intervalMin: number;
   excludedStores: string[];
   ntfyTopic: string;
@@ -42,9 +45,10 @@ interface Settings {
 const DEFAULT_SETTINGS: Settings = {
   country: "fr",
   modelId: "iphone-duo",
-  colors: ["night-sky"],
+  colors: ["star-white"],
   storages: ["256"],
   location: "75001",
+  region: "idf",
   intervalMin: 2,
   excludedStores: [],
   ntfyTopic: "",
@@ -175,6 +179,9 @@ function Tracker() {
       .filter((v) => settings.colors.includes(v.color) && settings.storages.includes(v.storage))
       .slice(0, MAX_VARIANTS);
   }, [countryVariants, model.reference, settings.colors, settings.storages]);
+  const countryRegions = REGIONS.filter((r) => r.country === country.code);
+  const activeRegion = countryRegions.find((r) => r.id === settings.region);
+  const hasTarget = Boolean(activeRegion || settings.location.trim());
   const tooMany =
     !model.reference && settings.colors.length * settings.storages.length > MAX_VARIANTS;
 
@@ -203,12 +210,13 @@ function Tracker() {
 
   const check = useCallback(async (): Promise<number | undefined> => {
     const { settings: s, selectedVariants: variants } = latest.current;
-    if (!variants.length || !s.location.trim()) return;
+    const region = REGIONS.find((r) => r.id === s.region && r.country === s.country);
+    if (!variants.length || (!region && !s.location.trim())) return;
     setLoading(true);
     try {
       const qs = new URLSearchParams({
         country: s.country,
-        location: s.location.trim(),
+        ...(region ? { region: region.id } : { location: s.location.trim() }),
         parts: variants.map((v) => v.partNumber).join(","),
       });
       const res = await fetch(`/api/apple-stock?${qs}`);
@@ -335,6 +343,7 @@ function Tracker() {
                   update({
                     country: c.code,
                     location: c.defaultLocation,
+                    region: REGIONS.find((r) => r.country === c.code)?.id ?? null,
                     excludedStores: [],
                     modelId: MODELS.find((m) => m.id === settings.modelId)?.variantsByCountry[c.code]
                       ? settings.modelId
@@ -426,24 +435,47 @@ function Tracker() {
               </>
             )}
 
-            <Section title="Code postal ou ville">
+            <Section title="Zone">
+              {countryRegions.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-2">
+                  {countryRegions.map((r) => (
+                    <Chip
+                      key={r.id}
+                      active={settings.region === r.id}
+                      onClick={() => {
+                        resetResults();
+                        update({ region: settings.region === r.id ? null : r.id, excludedStores: [] });
+                      }}
+                    >
+                      {r.label}
+                      <span className="text-xs font-normal text-zinc-500">
+                        {r.storeNumbers.length} magasins
+                      </span>
+                    </Chip>
+                  ))}
+                </div>
+              )}
               <div className="flex gap-2">
                 <input
-                  value={settings.location}
-                  onChange={(e) => update({ location: e.target.value })}
-                  placeholder={country.locationPlaceholder}
+                  value={activeRegion ? "" : settings.location}
+                  onChange={(e) => update({ location: e.target.value, region: null })}
+                  placeholder={
+                    activeRegion ? "ou un code postal / une ville" : country.locationPlaceholder
+                  }
                   className="min-w-0 flex-1 rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-sky-400/60"
                 />
                 <button
                   type="submit"
-                  disabled={loading || !selectedVariants.length || !settings.location.trim()}
+                  disabled={loading || !selectedVariants.length || !hasTarget}
                   className="rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-zinc-950 transition hover:bg-zinc-200 disabled:opacity-40"
                 >
                   {loading ? "…" : "Vérifier"}
                 </button>
               </div>
               <p className="mt-2 text-xs text-zinc-500">
-                Apple renvoie les 12 magasins les plus proches au maximum.
+                {activeRegion
+                  ? `Les ${activeRegion.storeNumbers.length} Apple Store de la zone, triés par distance de ${activeRegion.center.label}.`
+                  : "Apple renvoie les 12 magasins les plus proches au maximum."}
               </p>
             </Section>
           </form>
@@ -463,7 +495,7 @@ function Tracker() {
               <button
                 type="button"
                 onClick={() => setWatching((w) => !w)}
-                disabled={!selectedVariants.length || !settings.location.trim()}
+                disabled={!selectedVariants.length || !hasTarget}
                 className={`relative h-8 w-14 shrink-0 rounded-full transition disabled:opacity-40 ${
                   watching ? "bg-emerald-500" : "bg-zinc-700"
                 }`}
@@ -573,7 +605,7 @@ function Tracker() {
               </p>
               <p className="truncate text-sm text-zinc-400">
                 {data
-                  ? `${data.stores.length} magasins autour de « ${data.location} » · mis à jour à ${new Date(data.fetchedAt).toLocaleTimeString("fr-FR")}${data.cached ? " (cache)" : ""}`
+                  ? `${data.stores.length} magasins ${activeRegion ? "·" : "autour de"} ${activeRegion ? data.location : `« ${data.location} »`} · mis à jour à ${new Date(data.fetchedAt).toLocaleTimeString("fr-FR")}${data.cached ? " (cache)" : ""}`
                   : `${selectedVariants.length} configuration(s) sélectionnée(s) · ${country.flag} ${country.label}`}
               </p>
             </div>

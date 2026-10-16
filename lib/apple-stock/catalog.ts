@@ -114,6 +114,34 @@ export const MODELS: Model[] = [
   },
 ];
 
+export interface Region {
+  id: string;
+  label: string;
+  country: CountryCode;
+  /** Queried in order, and only until every expected store has been seen. */
+  locations: string[];
+  /** Every Apple Store in the region, per apple.com/fr/retail/storelist (2026-10-16). */
+  storeNumbers: string[];
+  postalPrefixes: string[];
+  center: { latitude: number; longitude: number; label: string };
+}
+
+export const REGIONS: Region[] = [
+  {
+    id: "idf",
+    label: "Région parisienne",
+    country: "fr",
+    locations: ["75001", "77127", "78000"],
+    storeNumbers: ["R277", "R566", "R675", "R178", "R315", "R374", "R536", "R425", "R438"],
+    postalPrefixes: ["75", "77", "78", "91", "92", "93", "94", "95"],
+    center: { latitude: 48.8566, longitude: 2.3522, label: "Paris" },
+  },
+];
+
+export function getRegion(id: string): Region | undefined {
+  return REGIONS.find((r) => r.id === id);
+}
+
 export const PART_NUMBER_RE = /^[A-Z0-9]{4,6}[A-Z]{1,2}\/A$/;
 
 export function getCountry(code: string): Country | undefined {

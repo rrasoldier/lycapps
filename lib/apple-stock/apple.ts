@@ -1,4 +1,4 @@
-import type { Country } from "./catalog";
+import type { Country, Region } from "./catalog";
 import type {
   AvailabilityStatus,
   PartAvailability,
@@ -85,6 +85,7 @@ function normalizeStore(raw: RawStore): StoreAvailability {
     name: raw.storeName,
     city: raw.city,
     address: [addr.address2, addr.postalCode].filter(Boolean).join(", "),
+    postalCode: addr.postalCode ?? "",
     distance: raw.storeDistanceWithUnit ?? "",
     url: (raw.reservationUrl ?? "").replace(/^http:/, "https:"),
     imageUrl: (raw.storeImageUrl ?? "").replace(/^http:/, "https:"),
@@ -199,4 +200,60 @@ export async function getStock(
   if (cache.size > 500) cache.delete(cache.keys().next().value!);
 
   return { ...entry.data, cached: false, nextRefreshIn: CACHE_TTL_MS / 1000 };
+}
+
+function kmBetween(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) {
+  const rad = Math.PI / 180;
+  const dLat = (b.latitude - a.latitude) * rad;
+  const dLon = (b.longitude - a.longitude) * rad;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(a.latitude * rad) * Math.cos(b.latitude * rad) * Math.sin(dLon / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(h));
+}
+
+/**
+ * Apple returns at most ~12 stores around one location, so a region is covered
+ * by querying its locations in order until every expected store has been seen.
+ * Each query goes through getStock and therefore shares its cache and rate limit.
+ */
+export async function getRegionStock(
+  country: Country,
+  parts: string[],
+  region: Region,
+): Promise<StockResponse> {
+  const stores = new Map<string, StoreAvailability>();
+  let cached = true;
+  let nextRefreshIn = Infinity;
+  let fetchedAt = "";
+
+  for (const location of region.locations) {
+    const res = await getStock(country, parts, location);
+    cached &&= res.cached;
+    nextRefreshIn = Math.min(nextRefreshIn, res.nextRefreshIn);
+    if (!fetchedAt || res.fetchedAt < fetchedAt) fetchedAt = res.fetchedAt;
+    for (const store of res.stores) {
+      if (!stores.has(store.storeNumber)) stores.set(store.storeNumber, store);
+    }
+    if (region.storeNumbers.every((n) => stores.has(n))) break;
+  }
+
+  const inRegion = [...stores.values()]
+    .filter((s) => region.postalPrefixes.some((p) => s.postalCode.startsWith(p)))
+    .map((s) => ({ store: s, km: kmBetween(region.center, s) }))
+    .sort((a, b) => a.km - b.km)
+    .map(({ store, km }) => ({
+      ...store,
+      distance: `${km.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} km de ${region.center.label}`,
+    }));
+
+  return {
+    country: country.code,
+    location: region.label,
+    fetchedAt,
+    cached,
+    nextRefreshIn,
+    stores: inRegion,
+    missingStores: region.storeNumbers.filter((n) => !stores.has(n)),
+  };
 }

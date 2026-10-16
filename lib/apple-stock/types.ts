@@ -13,6 +13,7 @@ export interface StoreAvailability {
   name: string;
   city: string;
   address: string;
+  postalCode: string;
   distance: string;
   url: string;
   imageUrl: string;
@@ -30,6 +31,8 @@ export interface StockResponse {
   /** Seconds before the server will query Apple again for this exact request. */
   nextRefreshIn: number;
   stores: StoreAvailability[];
+  /** Region queries only: expected stores Apple did not return. */
+  missingStores?: string[];
 }
 
 export interface StockError {

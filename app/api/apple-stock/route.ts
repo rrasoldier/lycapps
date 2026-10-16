@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
-import { getCountry, PART_NUMBER_RE } from "@/lib/apple-stock/catalog";
-import { getStock, UpstreamError } from "@/lib/apple-stock/apple";
+import { getCountry, getRegion, PART_NUMBER_RE } from "@/lib/apple-stock/catalog";
+import { getRegionStock, getStock, UpstreamError } from "@/lib/apple-stock/apple";
 import type { StockError } from "@/lib/apple-stock/types";
 
 const MAX_PARTS = 4;
@@ -18,8 +18,14 @@ export async function GET(request: NextRequest) {
   const country = getCountry(params.get("country") ?? "");
   if (!country) return fail("Pays non pris en charge.", 400);
 
+  const regionId = params.get("region");
+  const region = regionId ? getRegion(regionId) : undefined;
+  if (regionId && (!region || region.country !== country.code)) {
+    return fail("Région non prise en charge pour ce pays.", 400);
+  }
+
   const location = (params.get("location") ?? "").trim();
-  if (!location || location.length > 60) {
+  if (!region && (!location || location.length > 60)) {
     return fail("Indiquez un code postal ou une ville.", 400);
   }
 
@@ -32,7 +38,9 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const data = await getStock(country, parts, location);
+    const data = region
+      ? await getRegionStock(country, parts, region)
+      : await getStock(country, parts, location);
     return Response.json(data, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     if (err instanceof UpstreamError) return fail(err.message, err.status, err.retryAfter);
