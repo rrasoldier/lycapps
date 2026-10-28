@@ -10,31 +10,43 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <main id="card">
-      <div id="bar">
-        <button id="folder-btn" class="icon" title="Choisir un dossier à organiser (ou glissez-le ici)" aria-label="Choisir un dossier">📁</button>
-        <div id="folder-chip" hidden><span id="folder-name"></span><button id="folder-clear" aria-label="Retirer le dossier">×</button></div>
-        <input id="prompt" type="text" autocomplete="off" spellcheck="false" placeholder="Que puis-je faire pour vous ?" />
-        <button id="mic-btn" class="icon" title="Dictée vocale (clic pour démarrer/arrêter)" aria-label="Dictée vocale">🎙</button>
-        <button id="settings-btn" class="icon" title="Réglages" aria-label="Réglages">⚙</button>
-      </div>
+    <main id="card" class="compact">
+      <header id="head">
+        <div class="brand"><span class="orb"></span><span>Cursor Launcher</span></div>
+        <div class="head-actions">
+          <button id="new-btn" class="ghost" title="Nouvelle conversation (⌘N)">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            Nouvelle conversation
+          </button>
+        </div>
+      </header>
+
+      <div id="messages" role="log" aria-live="polite"></div>
+      <section id="settings" hidden></section>
+
       <div id="hint" hidden></div>
       <div id="progress" hidden>
         <div id="bar-track"><div id="bar-fill"></div></div>
         <div id="progress-text"></div>
       </div>
-      <section id="output" hidden></section>
-      <section id="plan" hidden></section>
-      <section id="settings" hidden></section>
-      <div id="confirm" hidden role="dialog" aria-modal="true">
-        <h2 id="confirm-title"></h2>
-        <pre id="confirm-detail"></pre>
-        <div class="row">
-          <button id="confirm-no">Refuser (Échap)</button>
-          <button id="confirm-yes" class="primary">Autoriser</button>
-        </div>
-      </div>
+
+      <footer id="composer">
+        <button id="folder-btn" class="icon" title="Choisir un dossier à organiser (ou glissez-le ici)" aria-label="Choisir un dossier">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>
+        </button>
+        <div id="folder-chip" hidden><span id="folder-name"></span><button id="folder-clear" aria-label="Retirer le dossier">×</button></div>
+        <textarea id="prompt" rows="1" autocomplete="off" spellcheck="false" placeholder="Que puis-je faire pour vous ?"></textarea>
+        <button id="mic-btn" class="icon" title="Dictée vocale (clic = démarrer/arrêter, maintien = push-to-talk)" aria-label="Dictée vocale">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+        </button>
+        <button id="settings-btn" class="icon" title="Réglages" aria-label="Réglages">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        </button>
+        <button id="send-btn" class="send" title="Envoyer (Entrée)" aria-label="Envoyer">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        </button>
+      </footer>
     </main>
-    <script src="renderer.js" defer></script>
+    <script type="module" src="renderer.js"></script>
   </body>
 </html>

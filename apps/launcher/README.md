@@ -4,6 +4,7 @@ Lanceur global pour Mac, façon Alfred / Raycast, qui donne accès à un agent I
 
 - **Raccourci global** (défaut `Option+Espace`) : affiche/masque une fenêtre flottante sans bordure, centrée en haut de l'écran, façon Spotlight.
 - **Application de barre de menus** : pas d'icône dans le Dock, lancement au démarrage optionnel.
+- **Interface de conversation** : fil de discussion avec bulles, réponses formatées en Markdown (titres, listes, tableaux, code, liens), étapes de l'agent visibles, confirmations intégrées au fil, mémoire de la conversation. L'agent peut vous **poser des questions** (`ask_user`) auxquelles on répond **par boutons ou par texte**.
 - **Agent** avec outils : lister / lire / écrire / déplacer des fichiers, Corbeille, commande shell, ouvrir une app ou une URL, créer un projet.
 - **Mode dossier** : glisser-déposer (ou 📁) un dossier + une consigne → aperçu du plan → confirmation → application → annulation possible.
 - **Voix** : bouton micro (clic = bascule, maintien = push-to-talk) et raccourci global de dictée (défaut `Option+Maj+Espace`). Transcription via Whisper (API compatible OpenAI).
@@ -71,7 +72,7 @@ Intégration dans le lanceur (fournisseur **« Cursor »**, choisi par défaut) 
 3. Les outils intégrés du SDK (shell, édition…) sont **désactivés** (`tools: ["mcp"]`). On lui expose uniquement **nos** outils via `local.customTools` : ils passent par le même périmètre de dossiers et les mêmes confirmations que pour les autres fournisseurs. Le mode dossier utilise un agent « texte seul » (`tools: []`) pour proposer le plan, validé ensuite par notre code.
 
 Limites propres à Cursor :
-- Le SDK est un agent complet, pas un simple modèle : un prompt = un agent éphémère (pas de mémoire entre deux prompts), pas de streaming dans l'UI (résultat à la fin), latence supérieure à un appel direct. Avec Cursor, le texte intermédiaire et la « réflexion » sont relayés dans la ligne de progression via `run.stream()` (non vérifié avec une vraie clé ; en cas d'échec du flux, seul le résultat final s'affiche). Le prompt système Cursor reste en place (orienté code) ; nos consignes sont ajoutées au message (`systemPrompt` personnalisé = option réservée aux comptes autorisés).
+- Le SDK est un agent complet, pas un simple modèle : la conversation réutilise le même agent Cursor (mémoire jusqu'à « Nouvelle conversation » ou changement de clé/modèle ; une erreur du SDK le referme), pas de streaming dans l'UI (résultat à la fin), latence supérieure à un appel direct. Avec Cursor, le texte intermédiaire et la « réflexion » sont relayés dans la ligne de progression via `run.stream()` (non vérifié avec une vraie clé ; en cas d'échec du flux, seul le résultat final s'affiche). Le prompt système Cursor reste en place (orienté code) ; nos consignes sont ajoutées au message (`systemPrompt` personnalisé = option réservée aux comptes autorisés).
 - Licence : `@cursor/sdk` est propriétaire (« Anysphere, soumis aux conditions d'utilisation de Cursor ») ; vérifier que la redistribution dans un `.dmg` vous convient.
 - Compatibilité avec un compte réel : le chargement du SDK dans Electron 38 et l'acceptation de nos options (`tools`, `customTools`) sont vérifiés (rejet « Invalid User API Key » par Cursor avec une fausse clé), mais **aucun appel complet n'a pu être testé sans clé valide** : voir la liste « À vérifier ».
 - Packaging : le SDK embarque des binaires par plateforme (`@cursor/sdk-darwin-arm64`, `-x64`) ; `asarUnpack` est configuré, mais construire séparément chaque architecture (ou installer les deux paquets) et vérifier l'app signée.
@@ -80,9 +81,10 @@ Limites propres à Cursor :
 
 | Action | Comment |
 | --- | --- |
-| Afficher / masquer | `Option+Espace` (ou clic sur l'icône de barre de menus). `Échap` : annuler / fermer. |
-| Instruction à l'agent | Taper puis `Entrée`. Ex. « Crée une petite app web de to-do list dans mon dossier Projects », « Quels sont les 5 plus gros fichiers de Downloads ? » |
+| Afficher / masquer | `Option+Espace` (ou clic sur l'icône de barre de menus). `Échap` : annuler / fermer (la conversation est conservée quand la fenêtre est masquée). |
+| Instruction à l'agent | Taper puis `Entrée` (`Maj+Entrée` = saut de ligne, `↑`/`↓` = historique). La fenêtre s'agrandit en conversation ; `⌘N` ou « Nouvelle conversation » repart de zéro. Ex. « Crée une petite app web de to-do list dans mon dossier Projects », « Quels sont les 5 plus gros fichiers de Downloads ? » |
 | Ranger un dossier | Glisser le dossier sur la fenêtre (ou 📁), taper la consigne (« range par année puis par type ») puis `Entrée` pour l'aperçu. `⌘Entrée` = rangement par type **sans IA**. |
+| Répondre à l'agent | Quand l'agent a besoin d'une précision, une carte apparaît dans le fil : cliquer un bouton (ou touche `1`–`9` quand le champ est vide) ou écrire sa réponse dans la barre de prompt. `Échap` refuse de répondre et interrompt la demande. |
 | Suivre l'avancement | Pendant une demande : barre animée, temps écoulé, nombre d'actions et étape en cours (« Lit … », « Exécute : … », « ⏸ En attente de votre confirmation »). Le pourcentage réel n'est pas connaissable (nombre d'étapes inconnu) : la barre est donc indéterminée. `Échap` annule. |
 | Dicter | Cliquer 🎙 (re-cliquer ou `Échap` pour terminer), ou maintenir le bouton (push-to-talk), ou `Option+Maj+Espace` depuis n'importe où. Le texte transcrit est ajouté à la barre de prompt, à relire avant `Entrée`. |
 
@@ -152,13 +154,13 @@ Le renderer ne touche jamais au disque : tout passe par l'IPC vers le processus 
 ## Tests
 
 ```bash
-npm test             # 73 tests unitaires/intégration (Vitest)
+npm test             # 83 tests unitaires/intégration (Vitest)
 npm run typecheck
 npm run build
 npm run e2e:linux    # app Electron réelle sous Xvfb + faux serveur LLM (nécessite xvfb-run)
 ```
 
-Couverture : périmètre (traversée, liens symboliques, préfixes voisins), classification shell, chaque outil (confirmation, refus, non-écrasement, timeout shell), boucle agent (erreurs d'outils, limite d'étapes, annulation), client LLM, mode dossier (dry-run, sélection partielle, collisions, re-vérification, annulation, autorisation hors périmètre), stockage des réglages/historique, transcription, résolution des clés.
+Couverture : périmètre (traversée, liens symboliques, préfixes voisins), classification shell, chaque outil (confirmation, refus, non-écrasement, timeout shell), boucle agent (erreurs d'outils, limite d'étapes, annulation), client LLM, mode dossier (dry-run, sélection partielle, collisions, re-vérification, annulation, autorisation hors périmètre), stockage des réglages/historique, transcription, résolution des clés, mémoire de conversation, outil `ask_user`, analyseur Markdown. Le test e2e Linux couvre aussi le fil de conversation, les boutons de réponse, le rendu Markdown et « Nouvelle conversation ».
 
 ## À vérifier sur Mac
 
@@ -172,13 +174,15 @@ Non testable depuis la VM Linux :
 - [ ] Dictée : invite micro, `MediaRecorder` WebM/Opus dans Electron macOS, qualité Whisper en français, raccourci `Option+Maj+Espace`. Limite connue : `globalShortcut` ne détecte pas le relâchement d'une touche, donc le raccourci global **bascule** (démarrer/arrêter) ; le vrai push-to-talk (maintien) n'existe que sur le bouton micro.
 - [ ] `open -a` pour « ouvrir une app », Corbeille (`shell.trashItem`), invites d'accès aux dossiers Bureau/Documents/Téléchargements.
 - [ ] Trousseau : `safeStorage` (invite d'accès au Trousseau à la première utilisation, clé conservée entre deux lancements).
+- [ ] Conversation : mise en page (fenêtre 780×680), saisie multi-lignes avec dictée, cartes de question (boutons + saisie libre) et de confirmation avec une vraie clé Cursor : vérifier que le modèle appelle bien `ask_user` quand il manque une information, et que la mémoire de l'agent Cursor est conservée d'un message à l'autre.
 - [ ] Drag & drop d'un dossier depuis le Finder (`webUtils.getPathForFile`).
 - [ ] `npm run dist` : génération du `.dmg` arm64/x64, signature/notarisation.
 
 ## Limites et pistes
 
-- Un seul fournisseur à la fois (Cursor, ou OpenAI-compatible) ; pas de streaming des réponses (résultat affiché en fin d'étape).
-- Pas de mémoire de conversation entre deux prompts (l'historique ne rejoue que le texte des prompts).
+- Un seul fournisseur à la fois (Cursor, ou OpenAI-compatible) ; pas de streaming des réponses mot à mot (réponse affichée en fin d'étape).
+- Mémoire de conversation limitée aux 60 derniers messages (fournisseurs OpenAI-compatibles) et non conservée après redémarrage de l'app.
+- Le rendu Markdown est volontairement minimal (pas d'images, pas de HTML, liens `http(s)`/`mailto` seulement).
 - Mode dossier non récursif ; l'annulation ne couvre que le dernier rangement de la session.
 - Pas de pilotage d'UI (clics, saisie) ni de lecture d'écran : prévu après validation du MVP.
 - Dictée uniquement via API Whisper (la Web Speech API de Chromium n'est pas fonctionnelle dans Electron sans clés Google). Pistes : `whisper.cpp` local, dictée macOS native.

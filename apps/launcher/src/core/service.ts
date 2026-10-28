@@ -3,7 +3,16 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { runAgent } from "./agent";
-import { CursorTextClient, listCursorModels, loadCursorSdk, runCursorAgent, type CursorModelInfo, type CursorSdkLike } from "./cursor";
+import {
+  CursorTextClient,
+  closeCursorSession,
+  listCursorModels,
+  loadCursorSdk,
+  newCursorSession,
+  runCursorAgent,
+  type CursorModelInfo,
+  type CursorSdkLike,
+} from "./cursor";
 import { OpenAiCompatClient, getProvider, keyFromEnv } from "./llm";
 import {
   applyPlan,
@@ -19,7 +28,7 @@ import { Scope, expandHome, realpathLoose } from "./security";
 import type { Settings } from "./settings";
 import { transcribeAudio } from "./transcribe";
 import type { ToolContext } from "./tools";
-import type { AgentEvent, Host, LlmClient } from "./types";
+import type { AgentEvent, ChatMessage, Host, LlmClient } from "./types";
 
 export interface SecretStore {
   get(name: string): string | undefined;
@@ -45,10 +54,22 @@ export interface ServiceDeps {
 export const llmSecretName = (provider: string) => `llm-api-key:${provider}`;
 export const SECRET_TRANSCRIPTION = "transcription-api-key";
 
+export const MAX_HISTORY_MESSAGES = 60;
+
+/** Borne la mémoire en coupant sur un message utilisateur (jamais entre un appel d'outil et sa réponse). */
+export function trimHistory(messages: ChatMessage[], max = MAX_HISTORY_MESSAGES): ChatMessage[] {
+  if (messages.length <= max) return messages;
+  const start = messages.findIndex((m, i) => i >= messages.length - max && m.role === "user");
+  return start === -1 ? [] : messages.slice(start);
+}
+
 export class LauncherService {
   private plans = new Map<string, OrganizePlan>();
   private lastApplied: ApplyResult["moved"] = [];
   private controller: AbortController | null = null;
+  private history: ChatMessage[] = [];
+  private historyKey = "";
+  private readonly cursorSession = newCursorSession();
 
   constructor(private readonly deps: ServiceDeps) {}
 
@@ -124,6 +145,13 @@ export class LauncherService {
     return { scope: this.scope(), host: this.deps.host, projectsRoot: s.projectsRoot };
   }
 
+  /** Oublie la conversation en cours (mémoire de l'agent). */
+  async resetConversation(): Promise<void> {
+    this.history = [];
+    this.historyKey = "";
+    await closeCursorSession(this.cursorSession);
+  }
+
   cancel(): void {
     this.controller?.abort();
   }
@@ -136,6 +164,7 @@ export class LauncherService {
         const apiKey = this.requireKey();
         return await runCursorAgent({
           sdk: await this.cursorSdk(),
+          session: this.cursorSession,
           apiKey,
           model: s.model || getProvider(s.provider).defaultModel,
           ctx: this.toolContext(),
@@ -144,7 +173,21 @@ export class LauncherService {
           signal: this.controller.signal,
         });
       }
-      const out = await runAgent({ llm: await this.llm(), ctx: this.toolContext(), prompt, onEvent, signal: this.controller.signal });
+      const s = this.deps.getSettings();
+      const key = `${s.provider}|${s.model}|${s.baseUrl}`;
+      if (key !== this.historyKey) {
+        this.history = [];
+        this.historyKey = key;
+      }
+      const out = await runAgent({
+        llm: await this.llm(),
+        ctx: this.toolContext(),
+        prompt,
+        history: this.history,
+        onEvent,
+        signal: this.controller.signal,
+      });
+      this.history = trimHistory(out.messages.slice(1));
       return out.text;
     } finally {
       this.controller = null;

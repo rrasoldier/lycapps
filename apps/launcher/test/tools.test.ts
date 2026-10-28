@@ -161,6 +161,26 @@ describe("outils", () => {
     expect(fs.existsSync(path.join(sb.root, "Projects", "p"))).toBe(false);
   });
 
+  it("ask_user : transmet question et choix (bornés), renvoie la réponse", async () => {
+    sb = makeSandbox();
+    sb.host.reply = "Option B";
+    const r = await runTool("ask_user", { question: "Lequel ?", choices: ["A", " ", "Option B", "x".repeat(200)], allow_text: false }, sb.ctx);
+    expect(r).toEqual({ ok: true, output: "Réponse de l'utilisatrice : Option B" });
+    expect(sb.host.asks[0].choices).toEqual(["A", "Option B", "x".repeat(80)]);
+    expect(sb.host.asks[0].allowText).toBe(false);
+    expect(sb.host.confirms).toHaveLength(0);
+  });
+
+  it("ask_user : sans choix la réponse libre reste autorisée ; pas de réponse = erreur", async () => {
+    sb = makeSandbox();
+    await runTool("ask_user", { question: "Nom ?", allow_text: false }, sb.ctx);
+    expect(sb.host.asks[0]).toMatchObject({ choices: [], allowText: true });
+    sb.host.reply = null;
+    const r = await runTool("ask_user", { question: "Encore ?" }, sb.ctx);
+    expect(r.ok).toBe(false);
+    expect(r.output).toContain("pas répondu");
+  });
+
   it("outil inconnu / sanitizeProjectName", async () => {
     sb = makeSandbox();
     expect((await runTool("format_disk", {}, sb.ctx)).ok).toBe(false);

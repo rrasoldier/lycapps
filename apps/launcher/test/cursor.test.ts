@@ -148,7 +148,36 @@ describe("fournisseur Cursor", () => {
     expect(Object.keys(opts.local.customTools ?? {}).sort()).toEqual([...TOOL_NAMES].sort());
     expect(state.prompts[0]).toContain("bonjour");
     expect(state.prompts[0]).toContain(sb.root);
+    expect(state.closed).toBe(0);
+    await service.resetConversation();
     expect(state.closed).toBe(1);
+  });
+
+  it("conversation : un seul agent réutilisé entre les messages (mémoire), rappel du périmètre ensuite", async () => {
+    const { sdk, state } = fakeSdk(async () => "ok");
+    const { service } = makeService({ sdk });
+    await service.runPrompt("premier", () => {});
+    await service.runPrompt("second", () => {});
+    expect(state.created).toHaveLength(1);
+    expect(state.prompts[1]).toContain("second");
+    expect(state.prompts[1].length).toBeLessThan(state.prompts[0].length);
+    await service.resetConversation();
+    await service.runPrompt("nouveau", () => {});
+    expect(state.created).toHaveLength(2);
+  });
+
+  it("ask_user via le SDK : la réponse (bouton ou texte) revient à l'agent", async () => {
+    let answer = "";
+    const { sdk } = fakeSdk(async (tools) => {
+      const r = await tools.ask_user.execute({ question: "Quel format ?", choices: ["CSV", "Excel"] });
+      answer = JSON.stringify(r);
+      return "ok";
+    });
+    const { service } = makeService({ sdk });
+    sb.host.reply = "CSV";
+    await service.runPrompt("fais un tableau", () => {});
+    expect(sb.host.asks).toEqual([{ question: "Quel format ?", choices: ["CSV", "Excel"], allowText: true }]);
+    expect(answer).toContain("CSV");
   });
 
   it("modèle choisi dans les réglages (ex. un modèle Claude du catalogue)", async () => {
@@ -203,7 +232,7 @@ describe("fournisseur Cursor", () => {
     service.cancel();
     await expect(p).rejects.toThrow("Annulé");
     expect(state.cancelled).toBe(1);
-    expect(state.closed).toBe(1);
+    expect(state.closed).toBe(0);
   });
 
   it("mode dossier via Cursor : client texte sans outils, JSON demandé, plan construit et validé", async () => {

@@ -24,7 +24,8 @@ const server = http.createServer((req, res) => {
     const last = b.messages.at(-1);
     let msg;
     if (b.response_format) msg = { role: "assistant", content: JSON.stringify({ summary: "Mock: images à part", assignments: [{ name: "a.png", dest: "Pics" }] }) };
-    else if (last.role === "tool") msg = { role: "assistant", content: "Terminé : " + last.content.slice(0, 60) };
+    else if (last.role === "tool") msg = { role: "assistant", content: last.content.includes("Réponse de") ? `## Tableau créé\n\nFormat choisi : **${last.content.split(" : ").pop()}**\n\n- fichier \`stats.csv\`\n- 3 lignes\n\n| Nom | Valeur |\n|---|---|\n| a | 1 |` : "Terminé : " + last.content.slice(0, 60) };
+    else if (last.content.includes("question")) msg = { role: "assistant", content: null, tool_calls: [{ id: "1", type: "function", function: { name: "ask_user", arguments: JSON.stringify({ question: "Quel **format** voulez-vous ?", choices: ["CSV", "Excel"] }) } }] };
     else if (last.content.includes("shell")) msg = { role: "assistant", content: null, tool_calls: [{ id: "1", type: "function", function: { name: "run_shell", arguments: JSON.stringify({ command: "echo hello-from-shell" }) } }] };
     else msg = { role: "assistant", content: null, tool_calls: [{ id: "1", type: "function", function: { name: "list_files", arguments: JSON.stringify({ path: allowed }) } }] };
     res.setHeader("content-type", "application/json");
@@ -36,7 +37,7 @@ const port = server.address().port;
 
 fs.writeFileSync(path.join(userData, "settings.json"), JSON.stringify({ provider: "custom", baseUrl: `http://127.0.0.1:${port}/v1`, model: "mock", allowedRoots: [allowed], projectsRoot: path.join(allowed, "Projects"), shortcut: "Alt+Space", dictationShortcut: "Alt+Shift+Space" }));
 
-const app = spawn("xvfb-run", ["-a", "node_modules/electron/dist/electron", ".", "--no-sandbox", `--user-data-dir=${userData}`, "--remote-debugging-port=9333", "--show"], { stdio: ["ignore", "pipe", "pipe"] });
+const app = spawn("xvfb-run", ["-a", "node_modules/electron/dist/electron", ".", "--no-sandbox", `--user-data-dir=${userData}`, "--remote-debugging-port=9333", "--show", "--e2e"], { stdio: ["ignore", "pipe", "pipe"] });
 app.stdout.on("data", (d) => process.stdout.write("[app] " + d));
 app.stderr.on("data", (d) => { const s = String(d); if (!/dbus|gpu|GLib|libva|Fontconfig/i.test(s)) process.stdout.write("[app!] " + s); });
 
@@ -68,67 +69,97 @@ await sleep(1500);
 check("renderer chargé (api exposée)", await ev("typeof window.launcher.runPrompt === 'function'"));
 check("état disponible", await ev("window.launcher.getState().then(s => s.settings.provider)") === "custom");
 
+const type = (text, meta = false) => ev(`(() => { const p = document.getElementById('prompt'); p.value = ${JSON.stringify(text)}; p.dispatchEvent(new Event('input')); p.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: ${meta}, bubbles: true })); })()`);
+const text = (sel) => ev(`[...document.querySelectorAll(${JSON.stringify(sel)})].map(e => e.innerText).join('\\n')`);
+const click = (sel, label) => ev(`[...document.querySelectorAll(${JSON.stringify(sel)})].find(b => ${JSON.stringify(label)} === '' || b.textContent.includes(${JSON.stringify(label)})).click()`);
+
+check("mode compact au départ", await ev("document.getElementById('card').classList.contains('compact')"));
+await shot("0-compact");
+
 // 1. prompt agent -> list_files
-await ev(`document.getElementById('prompt').value='liste mes fichiers'; document.getElementById('prompt').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'})); 0`);
+await type("liste mes fichiers");
 await sleep(1300);
 const prog = await ev("document.getElementById('progress').hidden ? '' : document.getElementById('progress-text').innerText");
 check("jauge de progression visible (temps + étape)", /\d:\d\d/.test(prog) && prog.includes("1 action"), JSON.stringify(prog));
-await shot("1b-progress");
+check("mode conversation actif", await ev("!document.getElementById('card').classList.contains('compact')"));
 await sleep(1500);
-let out = await ev("document.getElementById('output').innerText");
-check("agent: appel d'outil + réponse", out.includes("Liste le dossier") && out.includes("Terminé"), JSON.stringify(out.slice(0, 120)));
+let out = await text("#messages");
+check("agent: message utilisateur, étape et réponse", out.includes("liste mes fichiers") && out.includes("Liste le dossier") && out.includes("Terminé"), JSON.stringify(out.slice(0, 160)));
 await shot("1-agent");
 
-// 2. prompt shell -> confirmation
-await ev(`document.getElementById('prompt').value='lance un shell'; document.getElementById('prompt').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'})); 0`);
+// 2. prompt shell -> confirmation inline
+await type("lance un shell");
 await sleep(2000);
 check("progression en pause pendant la confirmation", (await ev("document.getElementById('progress-text').innerText")).includes("En attente de votre confirmation"));
-check("confirmation shell affichée", await ev("!document.getElementById('confirm').hidden && document.getElementById('confirm-detail').innerText.includes('echo hello-from-shell')"));
+check("confirmation shell affichée dans la conversation", await ev("document.querySelector('.card.confirm pre.detail')?.innerText.includes('echo hello-from-shell') === true"));
 await shot("2-confirm");
-await ev("document.getElementById('confirm-yes').click(); 0");
+await click("[data-role=confirm-yes]", "");
 await sleep(1500);
-out = await ev("document.getElementById('output').innerText");
-check("shell exécuté après confirmation", out.includes("hello-from-shell"), JSON.stringify(out.slice(-120)));
+out = await text("#messages");
+check("shell exécuté après confirmation", out.includes("hello-from-shell") && out.includes("Autorisé"), JSON.stringify(out.slice(-160)));
 
-// 3. historique
-check("progression terminée", (await ev("document.getElementById('progress-text').innerText")).startsWith("Terminé en"));
+// 3. question de l'agent : boutons
+await type("j'ai une question");
+await sleep(1800);
+check("carte de question avec boutons", await ev("document.querySelectorAll('.card.ask .choice').length === 2 && !!document.querySelector('.card.ask strong')"));
+check("progression en attente de réponse", (await ev("document.getElementById('progress-text').innerText")).includes("En attente de votre réponse"));
+check("saisie libre possible pendant la question", await ev("!document.getElementById('prompt').disabled && document.getElementById('prompt').placeholder === 'Votre réponse…'"));
+await shot("3-ask");
+await click(".card.ask .choice", "Excel");
+await sleep(1800);
+out = await text("#messages");
+check("réponse par bouton transmise à l'agent", out.includes("Excel") && out.includes("Réponse") === false && out.includes("Tableau créé"), JSON.stringify(out.slice(-200)));
+check("réponse formatée en Markdown (titre, liste, tableau, code)", await ev("!!document.querySelector('.bubble.md h3') && document.querySelectorAll('.bubble.md li').length >= 2 && !!document.querySelector('.bubble.md table td') && !!document.querySelector('.bubble.md code')"));
+await shot("3b-markdown");
+
+// 3c. question : réponse par texte libre
+await type("autre question");
+await sleep(1800);
+await type("Format ODS");
+await sleep(1800);
+out = await text("#messages");
+check("réponse par texte libre transmise", out.includes("Format ODS") && out.includes("Tableau créé"), JSON.stringify(out.slice(-120)));
+
+// 4. historique
 const hist = await ev("window.launcher.getState().then(s => s.history)");
-check("historique enregistré", hist.length === 2 && hist[1] === "lance un shell", JSON.stringify(hist));
+check("historique enregistré", hist.length === 4 && hist[1] === "lance un shell", JSON.stringify(hist));
 
-// 4. mode dossier: plan par type, apply, undo
+// 5. mode dossier : plan par type, apply, undo
 const plan = await ev(`window.launcher.planFolder(${JSON.stringify(allowed)}, '', 'type')`);
 check("plan par type (dry-run)", plan.ok && plan.plan.moves.length === 3 && fs.existsSync(path.join(allowed, "a.png")));
 await ev(`(async()=>{ const r = await window.launcher.planFolder(${JSON.stringify(allowed)}, 'range', 'prompt'); window.__p = r; })()`);
 const p2 = await ev("window.__p");
 check("plan via LLM (mock)", p2.ok && p2.plan.moves[0].toRel === "Pics/a.png");
 
-// UI folder mode with preview
-await ev(`setFolder(${JSON.stringify(allowed)}); 0`);
-await ev(`document.getElementById('prompt').value=''; document.getElementById('prompt').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',metaKey:true})); 0`);
+await ev(`window.__e2e.setFolder(${JSON.stringify(allowed)}); 0`);
+await type("", true);
 await sleep(1000);
-check("aperçu du plan dans l'UI", await ev("document.getElementById('plan').innerText.includes('Images/a.png')") && fs.existsSync(path.join(allowed, "a.png")));
-await shot("3-plan");
-await ev("[...document.querySelectorAll('#plan button')].find(b=>b.textContent.startsWith('Appliquer')).click(); 0");
+check("aperçu du plan dans la conversation", await ev("document.querySelector('.plan')?.innerText.includes('Images/a.png') === true") && fs.existsSync(path.join(allowed, "a.png")));
+await shot("4-plan");
+await click(".plan button", "Appliquer");
 await sleep(800);
-check("confirmation avant application", await ev("!document.getElementById('confirm').hidden") && fs.existsSync(path.join(allowed, "a.png")));
-await ev("document.getElementById('confirm-no').click(); 0");
+check("confirmation avant application", await ev("!!document.querySelector('[data-role=confirm-no]:not([disabled])') && !!document.querySelector('.card.confirm:not(.done)')") && fs.existsSync(path.join(allowed, "a.png")));
+await click("[data-role=confirm-no]", "");
 await sleep(500);
 check("refus => rien ne bouge", fs.existsSync(path.join(allowed, "a.png")) && !fs.existsSync(path.join(allowed, "Images")));
-await ev("[...document.querySelectorAll('#plan button')].find(b=>b.textContent.startsWith('Appliquer')).click(); 0");
+await click(".plan button", "Appliquer");
 await sleep(800);
-await ev("document.getElementById('confirm-yes').click(); 0");
+await ev("document.querySelectorAll('[data-role=confirm-yes]')[document.querySelectorAll('[data-role=confirm-yes]').length - 1].click(); 0");
 await sleep(800);
 check("fichiers rangés après confirmation", fs.existsSync(path.join(allowed, "Images/a.png")) && !fs.existsSync(path.join(allowed, "a.png")));
-await shot("3b-applied");
-await ev("[...document.querySelectorAll('#output button')].find(b=>b.textContent.startsWith('Annuler ce rangement')).click(); 0");
+await shot("4b-applied");
+await click(".plan button", "Annuler ce rangement");
 await sleep(800);
 check("annulation du rangement", fs.existsSync(path.join(allowed, "a.png")) && !fs.existsSync(path.join(allowed, "Images")));
 
-// settings panel
+// 6. nouvelle conversation + réglages
+await click("#new-btn", "");
+await sleep(500);
+check("nouvelle conversation : retour au mode compact", await ev("document.getElementById('card').classList.contains('compact') && document.getElementById('messages').childElementCount === 0"));
 await ev("document.getElementById('settings-btn').click(); 0");
 await sleep(500);
 check("panneau réglages", await ev("!document.getElementById('settings').hidden"));
-await shot("4-settings");
+await shot("5-settings");
 
 const failed = results.filter(([, ok]) => !ok);
 console.log(failed.length ? "ÉCHECS: " + failed.length : "TOUT OK");

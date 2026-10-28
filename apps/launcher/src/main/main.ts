@@ -18,18 +18,20 @@ import * as path from "node:path";
 import { getProvider, PROVIDERS } from "../core/llm";
 import { LauncherService, llmSecretName, SECRET_TRANSCRIPTION } from "../core/service";
 import { HistoryStore, SettingsStore, type Settings } from "../core/settings";
-import type { ConfirmRequest, Host } from "../core/types";
+import { isSafeUrl } from "../core/security";
+import type { AskRequest, ConfirmRequest, Host } from "../core/types";
 import { KeychainSecrets } from "./secrets";
 
-const WIDTH = 720;
+const WIDTH = 780;
 const MIN_HEIGHT = 84;
-const MAX_HEIGHT = 720;
+const MAX_HEIGHT = 760;
 
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let quitting = false;
 let dialogOpen = false;
 const pendingConfirms = new Map<string, (ok: boolean) => void>();
+const pendingAsks = new Map<string, (answer: string | null) => void>();
 
 const userData = app.getPath("userData");
 const settingsStore = new SettingsStore(path.join(userData, "settings.json"));
@@ -45,6 +47,15 @@ const host: Host = {
       showWindow();
       const payload: ConfirmRequest = { id, ...req };
       win.webContents.send("confirm:request", payload);
+    });
+  },
+  ask(req: AskRequest) {
+    return new Promise<string | null>((resolve) => {
+      if (!win || win.isDestroyed()) return resolve(null);
+      const id = randomUUID();
+      pendingAsks.set(id, resolve);
+      showWindow();
+      win.webContents.send("ask:request", { id, ...req });
     });
   },
   async openExternal(url) {
@@ -68,9 +79,11 @@ const service = new LauncherService({
   host,
 });
 
-function resolvePendingConfirms(ok: boolean): void {
-  for (const resolve of pendingConfirms.values()) resolve(ok);
+function resolvePending(): void {
+  for (const resolve of pendingConfirms.values()) resolve(false);
   pendingConfirms.clear();
+  for (const resolve of pendingAsks.values()) resolve(null);
+  pendingAsks.clear();
 }
 
 function createWindow(): BrowserWindow {
@@ -97,11 +110,11 @@ function createWindow(): BrowserWindow {
   });
   w.setAlwaysOnTop(true, "screen-saver");
   w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  w.loadFile(path.join(__dirname, "../renderer/index.html"));
+  w.loadFile(path.join(__dirname, "../renderer/index.html"), process.argv.includes("--e2e") ? { hash: "e2e" } : undefined);
   w.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   w.webContents.on("will-navigate", (e) => e.preventDefault());
   w.on("blur", () => {
-    if (!dialogOpen && pendingConfirms.size === 0 && !w.webContents.isDevToolsOpened()) hideWindow();
+    if (!dialogOpen && pendingConfirms.size === 0 && pendingAsks.size === 0 && !w.webContents.isDevToolsOpened()) hideWindow();
   });
   w.on("close", (e) => {
     if (!quitting) {
@@ -117,7 +130,17 @@ function positionWindow(): void {
   const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   const { x, y, width, height } = display.workArea;
   const [w] = win.getSize();
-  win.setPosition(Math.round(x + (width - w) / 2), Math.round(y + height * 0.2));
+  win.setPosition(Math.round(x + (width - w) / 2), Math.round(y + height * 0.12));
+  keepOnScreen();
+}
+
+function keepOnScreen(): void {
+  if (!win) return;
+  const { workArea } = screen.getDisplayMatching(win.getBounds());
+  const [x, y] = win.getPosition();
+  const [, h] = win.getSize();
+  const maxY = workArea.y + workArea.height - h - 8;
+  if (y > maxY) win.setPosition(x, Math.max(workArea.y + 8, maxY));
 }
 
 function showWindow(): void {
@@ -301,13 +324,23 @@ function registerIpc(): void {
     pendingConfirms.delete(id);
     resolve?.(ok === true);
   });
+  ipcMain.handle("ask:answer", (_e, id: string, answer: string | null) => {
+    const resolve = pendingAsks.get(id);
+    pendingAsks.delete(id);
+    resolve?.(typeof answer === "string" ? answer : null);
+  });
+  ipcMain.handle("agent:reset", () => service.resetConversation());
+  ipcMain.handle("link:open", async (_e, url: string) => {
+    if (typeof url === "string" && isSafeUrl(url)) await shell.openExternal(url);
+  });
   ipcMain.handle("ui:resize", (_e, height: number) => {
     if (!win || typeof height !== "number") return;
     const h = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, Math.round(height)));
     win.setSize(WIDTH, h);
+    keepOnScreen();
   });
   ipcMain.handle("ui:hide", () => {
-    resolvePendingConfirms(false);
+    resolvePending();
     hideWindow();
   });
 }

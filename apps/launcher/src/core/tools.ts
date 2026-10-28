@@ -214,6 +214,29 @@ const tools: Record<string, ToolDef> = {
     },
   },
 
+  ask_user: {
+    schema: schema(
+      "ask_user",
+      "Pose une question à l'utilisatrice et attend sa réponse. À utiliser dès qu'une précision est nécessaire (au lieu de deviner). Propose 2 à 5 choix courts quand c'est possible : elle pourra cliquer ou répondre librement.",
+      {
+        question: { type: "string" },
+        choices: { type: "array", items: { type: "string" }, description: "Choix proposés (2 à 5, courts). Facultatif." },
+        allow_text: { type: "boolean", description: "Autoriser une réponse libre (défaut : true)." },
+      },
+      ["question"],
+    ),
+    async run(args, ctx) {
+      const question = str(args, "question");
+      const choices = Array.isArray(args.choices)
+        ? args.choices.filter((c): c is string => typeof c === "string" && c.trim() !== "").map((c) => c.trim().slice(0, 80)).slice(0, 6)
+        : [];
+      const allowText = args.allow_text === false && choices.length > 0 ? false : true;
+      const answer = await ctx.host.ask({ question, choices, allowText });
+      if (answer === null) throw new Error("L'utilisatrice n'a pas répondu à la question.");
+      return `Réponse de l'utilisatrice : ${answer}`;
+    },
+  },
+
   open_app: {
     schema: schema("open_app", "Ouvre une application macOS par son nom (ex: « Safari »).", { name: { type: "string" } }, ["name"]),
     async run(args, ctx) {

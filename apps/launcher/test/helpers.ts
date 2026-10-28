@@ -8,6 +8,8 @@ import type { Host } from "../src/core/types";
 export interface TestHost extends Host {
   confirms: Array<{ title: string; detail: string; risk: string }>;
   answer: boolean;
+  asks: Array<{ question: string; choices: string[]; allowText: boolean }>;
+  reply: string | null;
   opened: string[];
   trashed: string[];
 }
@@ -16,11 +18,17 @@ export function makeHost(answer = true): TestHost {
   const h: TestHost = {
     confirms: [],
     answer,
+    asks: [],
+    reply: "Oui",
     opened: [],
     trashed: [],
     async confirm(req) {
       h.confirms.push(req);
       return h.answer;
+    },
+    async ask(req) {
+      h.asks.push(req);
+      return h.reply;
     },
     async openExternal(url) {
       h.opened.push(url);

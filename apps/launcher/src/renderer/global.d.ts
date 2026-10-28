@@ -53,6 +53,13 @@ interface ConfirmView {
   risk: "info" | "confirm" | "danger";
 }
 
+interface AskView {
+  id: string;
+  question: string;
+  choices: string[];
+  allowText: boolean;
+}
+
 interface LauncherApi {
   getState(): Promise<LauncherState>;
   updateSettings(patch: Partial<LauncherState["settings"]>): Promise<{ state: LauncherState; errors: string[] }>;
@@ -70,11 +77,15 @@ interface LauncherApi {
   ensureMic(): Promise<boolean>;
   transcribe(audio: ArrayBuffer, mime: string): Promise<{ ok: true; text: string } | { ok: false; error: string }>;
   answerConfirm(id: string, ok: boolean): Promise<void>;
+  answerAsk(id: string, answer: string | null): Promise<void>;
+  resetConversation(): Promise<void>;
+  openLink(url: string): Promise<void>;
   resize(height: number): Promise<void>;
   hide(): Promise<void>;
   onShown(cb: () => void): () => void;
   onToggleDictation(cb: () => void): () => void;
   onOpenSettings(cb: () => void): () => void;
+  onAsk(cb: (req: AskView) => void): () => void;
   onConfirm(cb: (req: ConfirmView) => void): () => void;
   onAgentEvent(cb: (e: AgentEventView) => void): () => void;
 }

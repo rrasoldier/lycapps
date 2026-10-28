@@ -7,9 +7,17 @@ export interface ConfirmRequest {
   risk: RiskLevel;
 }
 
+export interface AskRequest {
+  question: string;
+  choices: string[];
+  allowText: boolean;
+}
+
 /** Callbacks fournis par l'hôte (Electron ou tests). */
 export interface Host {
   confirm(req: Omit<ConfirmRequest, "id">): Promise<boolean>;
+  /** Pose une question à l'utilisatrice ; `null` si elle n'a pas répondu (fenêtre masquée, Échap). */
+  ask(req: AskRequest): Promise<string | null>;
   openExternal(url: string): Promise<void>;
   openApp(name: string): Promise<void>;
   trash(absPath: string): Promise<void>;

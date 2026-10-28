@@ -68,7 +68,12 @@ export async function loadCursorSdk(): Promise<CursorSdkLike> {
   }
 }
 
-export function toCustomTools(ctx: ToolContext, onEvent: (e: AgentEvent) => void): Record<string, CursorCustomTool> {
+export interface ToolAccess {
+  ctx(): ToolContext;
+  emit(e: AgentEvent): void;
+}
+
+export function toCustomTools(access: ToolAccess): Record<string, CursorCustomTool> {
   const tools: Record<string, CursorCustomTool> = {};
   for (const schema of TOOL_SCHEMAS) {
     const { name, description, parameters } = schema.function;
@@ -76,14 +81,36 @@ export function toCustomTools(ctx: ToolContext, onEvent: (e: AgentEvent) => void
       description,
       inputSchema: parameters,
       async execute(args) {
-        onEvent({ type: "tool_call", name, args });
-        const r = await runTool(name, args, ctx);
-        onEvent({ type: "tool_result", name, ok: r.ok, output: r.output });
+        access.emit({ type: "tool_call", name, args });
+        const r = await runTool(name, args, access.ctx());
+        access.emit({ type: "tool_result", name, ok: r.ok, output: r.output });
         return { content: [{ type: "text", text: `${r.ok ? "OK" : "ERREUR"}: ${r.output}` }], isError: !r.ok };
       },
     };
   }
   return tools;
+}
+
+/**
+ * Conversation Cursor persistante : l'agent du SDK conserve le contexte entre deux messages,
+ * on ne le recrée que si la clé ou le modèle change (ou après une erreur).
+ */
+export interface CursorSession {
+  agent: CursorAgentLike | null;
+  key: string;
+  ctx: ToolContext | null;
+  emit: (e: AgentEvent) => void;
+}
+
+export function newCursorSession(): CursorSession {
+  return { agent: null, key: "", ctx: null, emit: () => {} };
+}
+
+export async function closeCursorSession(session: CursorSession): Promise<void> {
+  const agent = session.agent;
+  session.agent = null;
+  session.key = "";
+  if (agent) await closeQuietly(agent);
 }
 
 /** Transforme le flux d'événements du SDK en messages de progression ; ne lève jamais. */
@@ -129,6 +156,7 @@ async function closeQuietly(agent: CursorAgentLike): Promise<void> {
 
 export interface RunCursorAgentOptions {
   sdk: CursorSdkLike;
+  session: CursorSession;
   apiKey: string;
   model: string;
   ctx: ToolContext;
@@ -139,26 +167,42 @@ export interface RunCursorAgentOptions {
 
 export async function runCursorAgent(opts: RunCursorAgentOptions): Promise<string> {
   const emit = opts.onEvent ?? (() => {});
+  const { session } = opts;
   if (opts.signal?.aborted) throw new Error("Annulé.");
-  const agent = await opts.sdk.Agent.create({
-    apiKey: opts.apiKey,
-    model: { id: opts.model },
-    // Aucun outil intégré (shell, édition…) : seuls nos outils MCP « custom » sont proposés.
-    tools: ["mcp"],
-    // Dossier de travail neutre : l'agent n'a pas d'outil fichier propre, tout passe par nos outils.
-    local: { cwd: os.tmpdir(), customTools: toCustomTools(opts.ctx, emit) },
-  });
-  try {
+  const key = `${opts.apiKey}\n${opts.model}`;
+  if (session.agent && session.key !== key) await closeCursorSession(session);
+  session.ctx = opts.ctx;
+  session.emit = emit;
+
+  const isFirstMessage = !session.agent;
+  if (!session.agent) {
     emit({ type: "progress", text: "Cursor prépare la réponse…" });
-    const run = await agent.send(
-      [
-        systemPrompt(opts.ctx),
-        "Tu n'as accès qu'aux outils fournis par le serveur MCP « custom-user-tools » ; n'essaie pas d'autres moyens d'agir sur l'ordinateur.",
-        "",
-        "Demande de l'utilisatrice :",
-        opts.prompt,
-      ].join("\n"),
-    );
+    session.agent = await opts.sdk.Agent.create({
+      apiKey: opts.apiKey,
+      model: { id: opts.model },
+      // Aucun outil intégré (shell, édition…) : seuls nos outils MCP « custom » sont proposés.
+      tools: ["mcp"],
+      // Dossier de travail neutre : l'agent n'a pas d'outil fichier propre, tout passe par nos outils.
+      local: {
+        cwd: os.tmpdir(),
+        customTools: toCustomTools({ ctx: () => session.ctx as ToolContext, emit: (e) => session.emit(e) }),
+      },
+    });
+    session.key = key;
+  }
+  const agent = session.agent;
+
+  try {
+    const message = isFirstMessage
+      ? [
+          systemPrompt(opts.ctx),
+          "Tu n'as accès qu'aux outils fournis par le serveur MCP « custom-user-tools » ; n'essaie pas d'autres moyens d'agir sur l'ordinateur.",
+          "",
+          "Demande de l'utilisatrice :",
+          opts.prompt,
+        ].join("\n")
+      : [`[Dossiers autorisés actuellement : ${opts.ctx.scope.roots.join(", ") || "(aucun)"}]`, opts.prompt].join("\n");
+    const run = await agent.send(message);
     const onAbort = () => void run.cancel().catch(() => {});
     opts.signal?.addEventListener("abort", onAbort, { once: true });
     let result;
@@ -168,12 +212,16 @@ export async function runCursorAgent(opts: RunCursorAgentOptions): Promise<strin
       opts.signal?.removeEventListener("abort", onAbort);
     }
     if (result.status === "cancelled") throw new Error("Annulé.");
-    if (result.status === "error") throw new Error(`Erreur Cursor : ${result.error?.message ?? "inconnue"}`);
+    if (result.status === "error") {
+      await closeCursorSession(session);
+      throw new Error(`Erreur Cursor : ${result.error?.message ?? "inconnue"}`);
+    }
     const text = result.result ?? "";
     emit({ type: "message", text });
     return text;
-  } finally {
-    await closeQuietly(agent);
+  } catch (e) {
+    if (!(e instanceof Error) || e.message !== "Annulé.") await closeCursorSession(session);
+    throw e;
   }
 }
 

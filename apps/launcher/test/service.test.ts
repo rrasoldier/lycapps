@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { keyFromEnv, getProvider } from "../src/core/llm";
-import { LauncherService, llmSecretName, type SecretStore } from "../src/core/service";
+import { LauncherService, llmSecretName, trimHistory, type SecretStore } from "../src/core/service";
 import { defaultSettings, HistoryStore, SettingsStore, type Settings } from "../src/core/settings";
 import { transcribeAudio } from "../src/core/transcribe";
 import type { CursorSdkLike } from "../src/core/cursor";
@@ -45,6 +45,33 @@ describe("LauncherService", () => {
     const c = makeService();
     expect(c.service.llmKeySource()).toBe("none");
     expect(keyFromEnv(getProvider("openai"), { LAUNCHER_API_KEY: "a", OPENAI_API_KEY: "b" })).toBe("a");
+  });
+
+  it("conversation : l'historique est renvoyé au modèle, effaçable, et borné sans couper un échange d'outil", async () => {
+    const seen: number[] = [];
+    const llm: LlmClient = {
+      async chat(messages) {
+        seen.push(messages.length);
+        return { role: "assistant", content: "ok" };
+      },
+    };
+    const { service } = makeService({ env: { OPENAI_API_KEY: "k" }, llm });
+    await service.runPrompt("un", () => {});
+    await service.runPrompt("deux", () => {});
+    expect(seen[1]).toBeGreaterThan(seen[0]);
+    await service.resetConversation();
+    await service.runPrompt("trois", () => {});
+    expect(seen[2]).toBe(seen[0]);
+
+    const msgs = Array.from({ length: 10 }, (_, i) => [
+      { role: "user" as const, content: `u${i}` },
+      { role: "assistant" as const, content: null, tool_calls: [{ id: String(i), type: "function" as const, function: { name: "x", arguments: "{}" } }] },
+      { role: "tool" as const, content: "r", tool_call_id: String(i) },
+      { role: "assistant" as const, content: `a${i}` },
+    ]).flat();
+    const trimmed = trimHistory(msgs, 10);
+    expect(trimmed[0].role).toBe("user");
+    expect(trimmed.length).toBeLessThanOrEqual(10);
   });
 
   it("sans clé, l'exécution échoue avec un message clair (et le mode « par type » reste utilisable)", async () => {
