@@ -60,6 +60,11 @@ Ensuite : double-clic sur **Cursor Launcher** (Finder, Launchpad, Spotlight), ou
 
 Attention : une app lancée depuis le Finder ne voit pas les variables définies dans `~/.zshrc` (ex. `CURSOR_API_KEY`). Saisissez la clé dans ⚙ → Clé API (stockée dans le Trousseau), ou exportez-la dans `~/.zprofile`.
 
+**Icône 🔍 introuvable dans la barre de menus** (l'app tourne pourtant : `Option+Espace` fonctionne) :
+1. Réglages Système → **Barre des menus** → section « Autoriser dans la barre des menus » : activer **Electron** / **Cursor Launcher** (macOS 13+ peut masquer une app dont l'identité a changé, par ex. après être passé de `npm start` à `Cursor Launcher.app`).
+2. Barre de menus saturée (surtout avec l'encoche) : fermer/retirer d'autres icônes (⌘ + glisser hors de la barre) ou réduire leur nombre.
+3. Rouvrir l'app (double-clic sur `Cursor Launcher.app`) affiche aussi la fenêtre, d'où l'on peut ouvrir ⚙ ; le menu « Quitter » n'est accessible que par l'icône : sinon, Moniteur d'activité → Electron → Quitter.
+
 ### Clés API
 
 Jamais dans le code ni dans `settings.json`. Ordre de résolution :

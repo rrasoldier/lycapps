@@ -458,6 +458,7 @@ function createTray(): void {
   icon.setTemplateImage(true);
   tray = new Tray(icon);
   tray.setToolTip("Cursor Launcher");
+  if (icon.isEmpty()) tray.setTitle("🔍");
   tray.on("click", toggleWindow);
   refreshTrayMenu();
 }
@@ -466,6 +467,7 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", showWindow);
+  app.on("activate", showWindow);
   app.on("before-quit", () => {
     quitting = true;
   });
