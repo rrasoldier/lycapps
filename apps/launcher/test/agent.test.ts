@@ -42,6 +42,18 @@ describe("runAgent", () => {
     expect(toolMsg.content).toContain("42");
   });
 
+  it("émet le texte intermédiaire du modèle comme progression", async () => {
+    sb = makeSandbox();
+    const llm = scripted([
+      { role: "assistant", content: "Je regarde le dossier.", tool_calls: [{ id: "1", type: "function", function: { name: "list_files", arguments: '{"path":"."}' } }] },
+      { role: "assistant", content: "Fini." },
+    ]);
+    const events: AgentEvent[] = [];
+    await runAgent({ llm, ctx: sb.ctx, prompt: "x", onEvent: (e) => events.push(e) });
+    expect(events.map((e) => e.type)).toEqual(["progress", "tool_call", "tool_result", "message"]);
+    expect(events[0]).toEqual({ type: "progress", text: "Je regarde le dossier." });
+  });
+
   it("renvoie les erreurs d'outil au modèle (arguments invalides, périmètre)", async () => {
     sb = makeSandbox();
     const llm = scripted([

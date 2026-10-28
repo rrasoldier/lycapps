@@ -10,6 +10,7 @@ export function systemPrompt(ctx: ToolContext): string {
     `Dossiers autorisés pour les fichiers : ${ctx.scope.roots.join(", ") || "(aucun)"}.`,
     `Les nouveaux projets sont créés dans : ${ctx.projectsRoot}.`,
     "Règles : n'invente jamais le contenu d'un fichier que tu n'as pas lu ; préfère list_files/read_file avant d'agir ; n'utilise run_shell que si aucun autre outil ne convient ;",
+    "write_file n'écrit que du texte (UTF-8) : pour un « Excel », crée un fichier .csv (qui s'ouvre dans Excel) et dis-le clairement ; ne prétends jamais avoir créé un .xlsx sans l'avoir réellement généré.",
     "chaque action sensible demande une confirmation à l'utilisatrice — si elle refuse, n'insiste pas et propose une alternative ; ne supprime rien sans que ce soit explicitement demandé (trash_file uniquement).",
   ].join("\n");
 }
@@ -48,6 +49,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentOutcome> {
       emit({ type: "message", text });
       return { text, messages };
     }
+    if (reply.content?.trim()) emit({ type: "progress", text: reply.content.trim() });
     for (const call of calls) {
       let args: Record<string, unknown> = {};
       let parseError: string | null = null;

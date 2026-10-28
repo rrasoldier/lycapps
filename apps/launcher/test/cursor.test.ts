@@ -29,7 +29,7 @@ interface FakeState {
 /** Faux SDK : `script` joue le rôle du modèle et peut appeler les outils exposés. */
 function fakeSdk(
   script: (tools: Record<string, CursorCustomTool>, prompt: string) => Promise<string>,
-  opts: { status?: "finished" | "error"; hang?: boolean } = {},
+  opts: { status?: "finished" | "error"; hang?: boolean; stream?: () => AsyncIterable<unknown> } = {},
 ) {
   const state: FakeState = { created: [], prompts: [], closed: 0, cancelled: 0 };
   const sdk: CursorSdkLike = {
@@ -42,6 +42,7 @@ function fakeSdk(
             let release: () => void = () => {};
             const gate = new Promise<void>((r) => (release = r));
             const run: CursorRunLike = {
+              stream: opts.stream,
               async wait() {
                 if (opts.hang) await gate;
                 if (opts.status === "error") return { status: "error", error: { message: "quota dépassé" } };
@@ -170,7 +171,7 @@ describe("fournisseur Cursor", () => {
     fs.writeFileSync(path.join(sb.root, "n.txt"), "42");
     const events: AgentEvent[] = [];
     expect(await service.runPrompt("lis", (e) => events.push(e))).toBe("fini");
-    expect(events.map((e) => e.type)).toEqual(["tool_call", "tool_result", "tool_call", "tool_result", "message"]);
+    expect(events.map((e) => e.type)).toEqual(["progress", "tool_call", "tool_result", "tool_call", "tool_result", "message"]);
   });
 
   it("la confirmation s'applique aussi via le SDK : shell refusé = rien d'exécuté", async () => {
@@ -218,6 +219,34 @@ describe("fournisseur Cursor", () => {
     expect(plan.moves.map((m) => m.toRel)).toEqual(["Notes/a.txt"]);
     expect(plan.skipped.map((s) => s.name)).toEqual(["b.txt"]);
     expect(fs.existsSync(path.join(sb.root, "a.txt"))).toBe(true);
+  });
+
+  it("progression : texte intermédiaire et réflexion du flux Cursor relayés en événements", async () => {
+    const { sdk } = fakeSdk(async () => "voilà", {
+      stream: async function* () {
+        yield { type: "thinking", text: "hmm" };
+        yield { type: "thinking", text: "hmm 2" };
+        yield { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Je crée le tableau…" }] } };
+        yield { type: "tool_call", name: "mcp", status: "running" };
+      },
+    });
+    const { service } = makeService({ sdk });
+    const events: AgentEvent[] = [];
+    await service.runPrompt("x", (e) => events.push(e));
+    const progress = events.filter((e) => e.type === "progress").map((e) => (e as { text: string }).text);
+    expect(progress).toEqual(["Cursor prépare la réponse…", "Réflexion…", "Je crée le tableau…"]);
+    expect(events.at(-1)).toEqual({ type: "message", text: "voilà" });
+  });
+
+  it("un flux en erreur n'empêche pas d'obtenir le résultat", async () => {
+    const { sdk } = fakeSdk(async () => "ok quand même", {
+      stream: async function* () {
+        yield { type: "thinking" };
+        throw new Error("flux coupé");
+      },
+    });
+    const { service } = makeService({ sdk });
+    expect(await service.runPrompt("x", () => {})).toBe("ok quand même");
   });
 
   it("liste des modèles du catalogue", async () => {

@@ -27,6 +27,8 @@ export interface CursorCustomTool {
 }
 
 export interface CursorRunLike {
+  /** Événements en direct (texte intermédiaire, réflexion…). Optionnel. */
+  stream?(): AsyncIterable<unknown>;
   wait(): Promise<{ status: "finished" | "error" | "cancelled"; result?: string; error?: { message: string; code?: string } }>;
   cancel(): Promise<void>;
 }
@@ -84,6 +86,39 @@ export function toCustomTools(ctx: ToolContext, onEvent: (e: AgentEvent) => void
   return tools;
 }
 
+/** Transforme le flux d'événements du SDK en messages de progression ; ne lève jamais. */
+export async function forwardStream(run: CursorRunLike, emit: (e: AgentEvent) => void): Promise<void> {
+  if (!run.stream) return;
+  let thinking = false;
+  try {
+    for await (const ev of run.stream() as AsyncIterable<{ type?: string; message?: { content?: Array<{ type: string; text?: string }> } }>) {
+      if (ev.type === "thinking") {
+        if (!thinking) emit({ type: "progress", text: "Réflexion…" });
+        thinking = true;
+      } else if (ev.type === "assistant") {
+        thinking = false;
+        const text = (ev.message?.content ?? [])
+          .filter((b) => b.type === "text" && b.text)
+          .map((b) => b.text)
+          .join("")
+          .trim();
+        if (text) emit({ type: "progress", text });
+      }
+    }
+  } catch {
+    /* le flux est purement informatif : wait() reste la source de vérité */
+  }
+}
+
+async function waitWithProgress(run: CursorRunLike, emit: (e: AgentEvent) => void) {
+  const streaming = forwardStream(run, emit);
+  try {
+    return await run.wait();
+  } finally {
+    await Promise.race([streaming, new Promise((r) => setTimeout(r, 300))]);
+  }
+}
+
 async function closeQuietly(agent: CursorAgentLike): Promise<void> {
   try {
     await agent.close?.();
@@ -114,6 +149,7 @@ export async function runCursorAgent(opts: RunCursorAgentOptions): Promise<strin
     local: { cwd: os.tmpdir(), customTools: toCustomTools(opts.ctx, emit) },
   });
   try {
+    emit({ type: "progress", text: "Cursor prépare la réponse…" });
     const run = await agent.send(
       [
         systemPrompt(opts.ctx),
@@ -127,7 +163,7 @@ export async function runCursorAgent(opts: RunCursorAgentOptions): Promise<strin
     opts.signal?.addEventListener("abort", onAbort, { once: true });
     let result;
     try {
-      result = await run.wait();
+      result = await waitWithProgress(run, emit);
     } finally {
       opts.signal?.removeEventListener("abort", onAbort);
     }

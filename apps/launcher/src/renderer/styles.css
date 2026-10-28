@@ -34,3 +34,11 @@ section { margin-top: 8px; border-top: 1px solid rgba(255,255,255,0.08); padding
 #settings .roots div { display: flex; justify-content: space-between; padding: 2px 0; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
 #settings small { color: #9a9aa5; }
 body.drag #card { outline: 2px dashed #4b7bff; }
+
+#progress { padding: 6px 6px 0; }
+#bar-track { height: 3px; border-radius: 2px; background: rgba(255,255,255,0.1); overflow: hidden; }
+#bar-fill { height: 100%; width: 35%; border-radius: 2px; background: #4b7bff; animation: slide 1.4s ease-in-out infinite; }
+#progress.paused #bar-fill { animation: none; width: 100%; background: #e0a030; }
+#progress.done #bar-fill { animation: none; width: 100%; background: #3fae5f; }
+@keyframes slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
+#progress-text { margin-top: 4px; font-size: 12px; color: #b4b4be; white-space: pre-wrap; word-break: break-word; }

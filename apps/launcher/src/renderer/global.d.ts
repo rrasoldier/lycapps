@@ -42,6 +42,7 @@ interface ApplyView {
 type AgentEventView =
   | { type: "tool_call"; name: string; args: Record<string, unknown> }
   | { type: "tool_result"; name: string; ok: boolean; output: string }
+  | { type: "progress"; text: string }
   | { type: "message"; text: string }
   | { type: "error"; text: string };
 

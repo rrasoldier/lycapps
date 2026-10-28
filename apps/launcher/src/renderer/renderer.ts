@@ -25,6 +25,10 @@ let draft = "";
 let currentPlanId: string | null = null;
 let pendingConfirm: ConfirmView | null = null;
 let canUndo = false;
+let actions = 0;
+let startedAt = 0;
+let stepText = "";
+let ticker: number | undefined;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -51,6 +55,7 @@ function line(cls: string, text: string): void {
 }
 
 function resetOutput(): void {
+  if (!busy) progressEl.hidden = true;
   outputEl.replaceChildren();
   outputEl.hidden = true;
   planEl.replaceChildren();
@@ -59,13 +64,79 @@ function resetOutput(): void {
   canUndo = false;
 }
 
+function short(v: unknown, max = 70): string {
+  const t = typeof v === "string" ? v : JSON.stringify(v);
+  return t.length > max ? `${t.slice(0, max)}…` : t;
+}
+
+function describeCall(name: string, args: Record<string, unknown>): string {
+  switch (name) {
+    case "list_files": return `Liste le dossier ${short(args.path)}`;
+    case "read_file": return `Lit ${short(args.path)}`;
+    case "write_file": return `Écrit ${short(args.path)}`;
+    case "move_file": return `Déplace ${short(args.from)} → ${short(args.to)}`;
+    case "trash_file": return `Met à la Corbeille ${short(args.path)}`;
+    case "run_shell": return `Exécute : ${short(args.command, 90)}`;
+    case "open_app": return `Ouvre l'application ${short(args.name)}`;
+    case "open_url": return `Ouvre ${short(args.url)}`;
+    case "create_project": return `Crée le projet ${short(args.name)}`;
+    default: return `${name}(${Object.entries(args).map(([k, v]) => `${k}=${short(v, 40)}`).join(", ")})`;
+  }
+}
+
+function formatElapsed(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+const progressEl = $("progress");
+const progressText = $("progress-text");
+
+function renderProgress(): void {
+  const elapsed = formatElapsed(Date.now() - startedAt);
+  const count = actions ? ` · ${actions} action${actions > 1 ? "s" : ""}` : "";
+  const waiting = pendingConfirm ? "⏸ En attente de votre confirmation" : stepText || "Démarrage…";
+  progressText.textContent = `${elapsed}${count} — ${waiting}`;
+  progressEl.classList.toggle("paused", Boolean(pendingConfirm));
+  fit();
+}
+
+function startProgress(label: string): void {
+  actions = 0;
+  startedAt = Date.now();
+  stepText = label;
+  progressEl.hidden = false;
+  progressEl.className = "";
+  window.clearInterval(ticker);
+  ticker = window.setInterval(renderProgress, 1000);
+  renderProgress();
+}
+
+function stopProgress(ok: boolean): void {
+  window.clearInterval(ticker);
+  const elapsed = formatElapsed(Date.now() - startedAt);
+  progressEl.className = ok ? "done" : "";
+  progressText.textContent = `${ok ? "Terminé" : "Arrêté"} en ${elapsed}${actions ? ` · ${actions} action${actions > 1 ? "s" : ""}` : ""}`;
+  if (!ok) progressEl.hidden = true;
+  fit();
+}
+
 function describeEvent(e: AgentEventView): void {
   switch (e.type) {
     case "tool_call":
-      line("tool", `▶ ${e.name}(${Object.entries(e.args).map(([k, v]) => `${k}=${JSON.stringify(v).slice(0, 80)}`).join(", ")})`);
+      actions++;
+      stepText = describeCall(e.name, e.args);
+      line("tool", `▶ ${stepText}`);
+      renderProgress();
       break;
     case "tool_result":
       line(e.ok ? "ok" : "err", `${e.ok ? "✓" : "✗"} ${e.output.slice(0, 400)}`);
+      stepText = e.ok ? "Réflexion sur le résultat…" : "Une étape a échoué, l'agent réessaie…";
+      renderProgress();
+      break;
+    case "progress":
+      stepText = e.text.length > 160 ? `${e.text.slice(0, 160)}…` : e.text;
+      renderProgress();
       break;
     case "message":
       line("final", e.text);
@@ -91,6 +162,8 @@ async function submit(preset: "prompt" | "type"): Promise<void> {
   if (!folder && !text) return;
   resetOutput();
   setBusy(true);
+  startProgress(folder ? "Analyse du dossier…" : "Envoi de la demande…");
+  let ok = false;
   try {
     if (folder) {
       line("tool", `Analyse de ${folder}…`);
@@ -98,14 +171,17 @@ async function submit(preset: "prompt" | "type"): Promise<void> {
       outputEl.replaceChildren();
       outputEl.hidden = true;
       if (!r.ok) return line("err", r.error);
+      ok = true;
       renderPlan(r.id, r.plan);
     } else {
       state = { ...state, history: [...state.history.filter((h) => h !== text), text] };
       historyIdx = -1;
       const r = await api.runPrompt(text);
+      ok = r.ok;
       if (!r.ok) line("err", r.text);
     }
   } finally {
+    stopProgress(ok);
     setBusy(false);
   }
 }
@@ -114,7 +190,7 @@ function setBusy(b: boolean): void {
   busy = b;
   promptEl.disabled = b;
   if (!b) promptEl.focus();
-  setHint(b ? "En cours… (Échap pour annuler)" : folder ? "Mode dossier : aperçu uniquement, rien n'est modifié avant votre confirmation." : null);
+  setHint(b ? "Échap pour annuler" : folder ? "Mode dossier : aperçu uniquement, rien n'est modifié avant votre confirmation." : null);
 }
 
 function renderPlan(id: string, plan: PlanView): void {
@@ -185,6 +261,7 @@ api.onConfirm((req) => {
   confirmEl.className = req.risk === "danger" ? "danger" : "";
   $("confirm-yes").className = req.risk === "danger" ? "danger" : "primary";
   confirmEl.hidden = false;
+  if (busy) renderProgress();
   fit();
   $("confirm-yes").focus();
 });
@@ -195,6 +272,7 @@ function answerConfirm(ok: boolean): void {
   pendingConfirm = null;
   confirmEl.hidden = true;
   void api.answerConfirm(id, ok);
+  if (busy) renderProgress();
   fit();
   promptEl.focus();
 }

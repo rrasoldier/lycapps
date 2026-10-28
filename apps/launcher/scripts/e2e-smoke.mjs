@@ -28,7 +28,7 @@ const server = http.createServer((req, res) => {
     else if (last.content.includes("shell")) msg = { role: "assistant", content: null, tool_calls: [{ id: "1", type: "function", function: { name: "run_shell", arguments: JSON.stringify({ command: "echo hello-from-shell" }) } }] };
     else msg = { role: "assistant", content: null, tool_calls: [{ id: "1", type: "function", function: { name: "list_files", arguments: JSON.stringify({ path: allowed }) } }] };
     res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify({ choices: [{ message: msg }] }));
+    setTimeout(() => res.end(JSON.stringify({ choices: [{ message: msg }] })), 700);
   });
 });
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -70,14 +70,19 @@ check("état disponible", await ev("window.launcher.getState().then(s => s.setti
 
 // 1. prompt agent -> list_files
 await ev(`document.getElementById('prompt').value='liste mes fichiers'; document.getElementById('prompt').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'})); 0`);
+await sleep(1300);
+const prog = await ev("document.getElementById('progress').hidden ? '' : document.getElementById('progress-text').innerText");
+check("jauge de progression visible (temps + étape)", /\d:\d\d/.test(prog) && prog.includes("1 action"), JSON.stringify(prog));
+await shot("1b-progress");
 await sleep(1500);
 let out = await ev("document.getElementById('output').innerText");
-check("agent: appel d'outil + réponse", out.includes("list_files") && out.includes("Terminé"), JSON.stringify(out.slice(0, 120)));
+check("agent: appel d'outil + réponse", out.includes("Liste le dossier") && out.includes("Terminé"), JSON.stringify(out.slice(0, 120)));
 await shot("1-agent");
 
 // 2. prompt shell -> confirmation
 await ev(`document.getElementById('prompt').value='lance un shell'; document.getElementById('prompt').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'})); 0`);
-await sleep(1500);
+await sleep(2000);
+check("progression en pause pendant la confirmation", (await ev("document.getElementById('progress-text').innerText")).includes("En attente de votre confirmation"));
 check("confirmation shell affichée", await ev("!document.getElementById('confirm').hidden && document.getElementById('confirm-detail').innerText.includes('echo hello-from-shell')"));
 await shot("2-confirm");
 await ev("document.getElementById('confirm-yes').click(); 0");
@@ -86,6 +91,7 @@ out = await ev("document.getElementById('output').innerText");
 check("shell exécuté après confirmation", out.includes("hello-from-shell"), JSON.stringify(out.slice(-120)));
 
 // 3. historique
+check("progression terminée", (await ev("document.getElementById('progress-text').innerText")).startsWith("Terminé en"));
 const hist = await ev("window.launcher.getState().then(s => s.history)");
 check("historique enregistré", hist.length === 2 && hist[1] === "lance un shell", JSON.stringify(hist));
 
