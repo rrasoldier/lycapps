@@ -13,6 +13,7 @@ export interface Settings {
   allowedRoots: string[];
   projectsRoot: string;
   launchAtLogin: boolean;
+  autoUpdate: boolean;
 }
 
 export function defaultSettings(home = os.homedir()): Settings {
@@ -27,6 +28,7 @@ export function defaultSettings(home = os.homedir()): Settings {
     allowedRoots: [path.join(home, "Desktop"), path.join(home, "Documents"), path.join(home, "Downloads"), path.join(home, "Projects")],
     projectsRoot: path.join(home, "Projects"),
     launchAtLogin: false,
+    autoUpdate: true,
   };
 }
 

@@ -10,6 +10,7 @@ interface LauncherState {
     allowedRoots: string[];
     projectsRoot: string;
     launchAtLogin: boolean;
+    autoUpdate: boolean;
   };
   history: string[];
   llmKeySource: "env" | "keychain" | "none";
@@ -53,6 +54,16 @@ interface ConfirmView {
   risk: "info" | "confirm" | "danger";
 }
 
+type UpdateStatusView =
+  | { state: "unavailable"; reason: string }
+  | { state: "up-to-date"; version: string }
+  | { state: "available"; behind: number; version: string; subjects: string[] };
+
+interface UpdateView {
+  busy: string | null;
+  status: UpdateStatusView | null;
+}
+
 interface AskView {
   id: string;
   question: string;
@@ -79,6 +90,8 @@ interface LauncherApi {
   answerConfirm(id: string, ok: boolean): Promise<void>;
   answerAsk(id: string, answer: string | null): Promise<void>;
   resetConversation(): Promise<void>;
+  getUpdate(): Promise<UpdateView>;
+  runUpdate(): Promise<UpdateView>;
   openLink(url: string): Promise<void>;
   resize(height: number): Promise<void>;
   hide(): Promise<void>;

@@ -789,6 +789,33 @@ function openSettings(): void {
   const login = el("input");
   login.type = "checkbox";
   login.checked = s.launchAtLogin;
+  const autoUpdate = el("input");
+  autoUpdate.type = "checkbox";
+  autoUpdate.checked = s.autoUpdate;
+  const updateInfo = el("div", "update-info", "Vérification…");
+  const updateBtn = el("button", "", "Vérifier / mettre à jour");
+  const showUpdate = (u: UpdateView) => {
+    updateBtn.disabled = Boolean(u.busy);
+    const st = u.status;
+    updateInfo.replaceChildren();
+    if (u.busy) updateInfo.append(`⏳ ${u.busy}`);
+    else if (!st) updateInfo.append("Pas encore vérifié.");
+    else if (st.state === "up-to-date") updateInfo.append(`À jour (version ${st.version}).`);
+    else if (st.state === "unavailable") updateInfo.append(st.reason);
+    else {
+      updateBtn.textContent = `Mettre à jour (${st.behind})`;
+      updateInfo.append(`${st.behind} nouveauté(s) disponible(s) :`);
+      const ul = el("ul");
+      for (const t of st.subjects) ul.append(el("li", "", t));
+      updateInfo.append(ul);
+    }
+  };
+  updateBtn.onclick = async () => {
+    updateBtn.disabled = true;
+    updateInfo.textContent = "⏳ Mise à jour en cours (l'application redémarrera si une nouvelle version est installée)…";
+    showUpdate(await api.runUpdate());
+  };
+  void api.getUpdate().then(showUpdate);
 
   settingsEl.append(
     heading,
@@ -803,6 +830,9 @@ function openSettings(): void {
     field("Raccourci dictée", dictation),
     field("Dossier des projets", projects),
     field("Lancer au démarrage", login),
+    field("Mises à jour auto", autoUpdate, "Vérifie au démarrage (git pull + compilation) et redémarre si une nouvelle version est installée."),
+    field("Version", updateInfo),
+    field("", updateBtn),
   );
 
   const rootsBox = el("div", "roots");
@@ -858,6 +888,7 @@ function openSettings(): void {
       dictationShortcut: dictation.value.trim(),
       projectsRoot: projects.value.trim(),
       launchAtLogin: login.checked,
+      autoUpdate: autoUpdate.checked,
     });
     state = res.state;
     errs.push(...res.errors);

@@ -153,3 +153,4 @@ button.send:disabled { background: rgba(255, 255, 255, 0.1); box-shadow: none; }
 .line.ok { color: var(--ok); }
 body.drag #card { outline: 2px dashed var(--accent2); outline-offset: -4px; }
 .choice.picked { background: rgba(124, 92, 255, 0.55); border-color: transparent; opacity: 1; color: #fff; }
+.update-info { font-size: 12.5px; color: #b4b7cc; } .update-info ul { margin: 4px 0 0; padding-left: 18px; }

@@ -11,6 +11,7 @@
     "test": "vitest run",
     "e2e:linux": "node scripts/e2e-smoke.mjs",
     "start": "npm run build && electron .",
+    "app:install": "bash scripts/install-mac-app.sh",
     "dist": "npm run build && electron-builder --mac dmg"
   },
   "devDependencies": {

@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld("launcher", {
   ensureMic: () => ipcRenderer.invoke("mic:ensure"),
   transcribe: (audio: ArrayBuffer, mime: string) => ipcRenderer.invoke("voice:transcribe", audio, mime),
   answerAsk: (id: string, answer: string | null) => ipcRenderer.invoke("ask:answer", id, answer),
+  getUpdate: () => ipcRenderer.invoke("update:get"),
+  runUpdate: () => ipcRenderer.invoke("update:run"),
   resetConversation: () => ipcRenderer.invoke("agent:reset"),
   openLink: (url: string) => ipcRenderer.invoke("link:open", url),
   answerConfirm: (id: string, ok: boolean) => ipcRenderer.invoke("confirm:answer", id, ok),

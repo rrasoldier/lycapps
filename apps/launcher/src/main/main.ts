@@ -6,6 +6,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  Notification,
   screen,
   session,
   shell,
@@ -19,6 +20,7 @@ import { getProvider, PROVIDERS } from "../core/llm";
 import { LauncherService, llmSecretName, SECRET_TRANSCRIPTION } from "../core/service";
 import { HistoryStore, SettingsStore, type Settings } from "../core/settings";
 import { isSafeUrl } from "../core/security";
+import { makeRunner, Updater, type UpdateStatus } from "../core/updater";
 import type { AskRequest, ConfirmRequest, Host } from "../core/types";
 import { KeychainSecrets } from "./secrets";
 
@@ -32,6 +34,11 @@ let quitting = false;
 let dialogOpen = false;
 const pendingConfirms = new Map<string, (ok: boolean) => void>();
 const pendingAsks = new Map<string, (answer: string | null) => void>();
+
+const updater = new Updater(path.join(__dirname, "../.."), makeRunner({ loginShell: process.platform === "darwin" ? "/bin/zsh" : undefined }));
+let updateStatus: UpdateStatus | null = null;
+let updateBusy: string | null = null;
+const E2E = process.argv.includes("--e2e");
 
 const userData = app.getPath("userData");
 const settingsStore = new SettingsStore(path.join(userData, "settings.json"));
@@ -329,6 +336,11 @@ function registerIpc(): void {
     pendingAsks.delete(id);
     resolve?.(typeof answer === "string" ? answer : null);
   });
+  ipcMain.handle("update:get", () => ({ busy: updateBusy, status: updateStatus }));
+  ipcMain.handle("update:run", async () => {
+    const status = await (updateStatus?.state === "available" ? applyUpdate() : checkForUpdate(true));
+    return { busy: updateBusy, status };
+  });
   ipcMain.handle("agent:reset", () => service.resetConversation());
   ipcMain.handle("link:open", async (_e, url: string) => {
     if (typeof url === "string" && isSafeUrl(url)) await shell.openExternal(url);
@@ -344,6 +356,70 @@ function registerIpc(): void {
     hideWindow();
   });
 }
+
+function notify(body: string): void {
+  if (Notification.isSupported()) new Notification({ title: "Cursor Launcher", body, silent: true }).show();
+}
+
+function setUpdateBusy(text: string | null): void {
+  updateBusy = text;
+  refreshTrayMenu();
+}
+
+async function checkForUpdate(manual: boolean): Promise<UpdateStatus> {
+  if (updateBusy) return updateStatus ?? { state: "unavailable", reason: updateBusy };
+  setUpdateBusy("Recherche de mises à jour…");
+  try {
+    const before = updateStatus?.state === "available" ? updateStatus.behind : 0;
+    updateStatus = await updater.check();
+    if (updateStatus.state === "available" && !manual && settingsStore.get().autoUpdate && !startupDone) {
+      return await applyUpdate();
+    }
+    if (updateStatus.state === "available" && updateStatus.behind !== before) {
+      notify(`Mise à jour disponible (${updateStatus.behind} nouveauté${updateStatus.behind > 1 ? "s" : ""}) : menu de la barre de menus → Mettre à jour.`);
+    } else if (manual && updateStatus.state === "up-to-date") {
+      notify("Vous êtes à jour.");
+    }
+    return updateStatus;
+  } finally {
+    setUpdateBusy(null);
+  }
+}
+
+async function applyUpdate(): Promise<UpdateStatus> {
+  setUpdateBusy("Mise à jour…");
+  try {
+    const result = await updater.apply((text) => setUpdateBusy(text));
+    if (!result.changed) return (updateStatus = await updater.check());
+    notify("Mise à jour installée : redémarrage de l'application.");
+    resolvePending();
+    quitting = true;
+    app.relaunch();
+    app.exit(0);
+  } catch (err) {
+    dialog.showErrorBox("Mise à jour impossible", errorMessage(err));
+    updateStatus = await updater.check().catch(() => updateStatus);
+  } finally {
+    setUpdateBusy(null);
+  }
+  return updateStatus ?? { state: "unavailable", reason: "Mise à jour non effectuée." };
+}
+
+async function updateAction(): Promise<UpdateStatus> {
+  if (updateStatus?.state === "available") return applyUpdate();
+  const status = await checkForUpdate(true);
+  if (status.state === "unavailable") dialog.showErrorBox("Mises à jour indisponibles", status.reason);
+  return status;
+}
+
+function updateLabel(): string {
+  if (updateBusy) return `⏳ ${updateBusy}`;
+  if (updateStatus?.state === "available") return `Mettre à jour (${updateStatus.behind} nouveauté${updateStatus.behind > 1 ? "s" : ""})…`;
+  if (updateStatus?.state === "up-to-date") return `Vérifier les mises à jour (version ${updateStatus.version})`;
+  return "Vérifier les mises à jour";
+}
+
+let startupDone = false;
 
 function refreshTrayMenu(): void {
   if (!tray) return;
@@ -362,6 +438,14 @@ function refreshTrayMenu(): void {
           const next = settingsStore.update({ launchAtLogin: item.checked });
           applyLoginItem(next);
         },
+      },
+      { type: "separator" },
+      { label: updateLabel(), enabled: !updateBusy, click: () => void updateAction() },
+      {
+        label: "Mettre à jour automatiquement au démarrage",
+        type: "checkbox",
+        checked: s.autoUpdate,
+        click: (item) => settingsStore.update({ autoUpdate: item.checked }),
       },
       { type: "separator" },
       { label: "Quitter", click: () => { quitting = true; app.quit(); } },
@@ -404,6 +488,10 @@ if (!app.requestSingleInstanceLock()) {
     const s = settingsStore.get();
     const errors = registerShortcuts(s);
     applyLoginItem(s);
+    if (!E2E) {
+      void checkForUpdate(false).finally(() => (startupDone = true));
+      setInterval(() => void checkForUpdate(false), 6 * 3600_000).unref();
+    }
     if (process.argv.includes("--show")) win.once("ready-to-show", showWindow);
     if (errors.length) {
       dialog.showErrorBox("Raccourcis globaux", `${errors.join("\n")}\n\nModifiez-les dans les réglages (icône de la barre de menus).`);

@@ -42,6 +42,24 @@ Premier lancement : appuyez sur `Option+Espace`, ouvrez les réglages (⚙) et r
 
 Options de ligne de commande : `--show` affiche la fenêtre au démarrage (pratique en développement).
 
+### Lancer sans Terminal, et mises à jour
+
+```bash
+npm run app:install   # crée ~/Applications/Cursor Launcher.app (à faire une seule fois)
+```
+
+Ensuite : double-clic sur **Cursor Launcher** (Finder, Launchpad, Spotlight), ou glisser l'app dans le Dock. Pour qu'elle démarre à la connexion : Réglages Système → Général → Éléments de connexion → `+`. Cette petite app lance simplement l'application depuis le dossier du dépôt (le chemin est mémorisé : si vous déplacez le dossier, relancez `npm run app:install`).
+
+**Mises à jour** (depuis le dépôt git, sans `.dmg` ni signature Apple) :
+- Au démarrage (réglage « Mises à jour auto », activé par défaut) : `git fetch`, puis si des nouveautés existent `git pull --ff-only`, `npm install` seulement si `package.json`/`package-lock.json` ont changé, `npm run build`, et l'app redémarre toute seule. Décochable dans le menu de la barre de menus ou les réglages.
+- À la demande : icône de la barre de menus → **Mettre à jour (N nouveautés)…** (ou **Vérifier les mises à jour**), ou ⚙ → « Version » → bouton. Une vérification est aussi faite toutes les 6 h ; une notification signale une nouveauté disponible (appliquée seulement au démarrage ou sur clic).
+- Garde-fous : jamais de `reset --hard`/force ; si vous avez des modifications locales en conflit, `git pull` échoue et rien n'est écrasé ; si la compilation échoue, retour à la version précédente (`git reset --keep`) et message d'erreur.
+- La branche locale doit suivre une branche distante (c'est le cas après un `git clone` ou `git pull origin <branche>`). Si la branche de la PR est supprimée après fusion, faire `git checkout main && git pull` puis `npm run build` une fois.
+- Les mises à jour s'exécutent via un shell de connexion (`/bin/zsh -l`) pour retrouver `git` et `npm` (Homebrew, nvm…).
+- Un `.dmg` installé (sans dépôt git) n'a pas ce mécanisme : le menu indique « indisponible ». Une mise à jour automatique d'un `.dmg` (electron-updater + GitHub Releases) exige une app **signée** par un compte Apple Developer payant, ce qui n'est pas en place.
+
+Attention : une app lancée depuis le Finder ne voit pas les variables définies dans `~/.zshrc` (ex. `CURSOR_API_KEY`). Saisissez la clé dans ⚙ → Clé API (stockée dans le Trousseau), ou exportez-la dans `~/.zprofile`.
+
 ### Clés API
 
 Jamais dans le code ni dans `settings.json`. Ordre de résolution :
@@ -154,13 +172,13 @@ Le renderer ne touche jamais au disque : tout passe par l'IPC vers le processus 
 ## Tests
 
 ```bash
-npm test             # 83 tests unitaires/intégration (Vitest)
+npm test             # 90 tests unitaires/intégration (Vitest)
 npm run typecheck
 npm run build
 npm run e2e:linux    # app Electron réelle sous Xvfb + faux serveur LLM (nécessite xvfb-run)
 ```
 
-Couverture : périmètre (traversée, liens symboliques, préfixes voisins), classification shell, chaque outil (confirmation, refus, non-écrasement, timeout shell), boucle agent (erreurs d'outils, limite d'étapes, annulation), client LLM, mode dossier (dry-run, sélection partielle, collisions, re-vérification, annulation, autorisation hors périmètre), stockage des réglages/historique, transcription, résolution des clés, mémoire de conversation, outil `ask_user`, analyseur Markdown. Le test e2e Linux couvre aussi le fil de conversation, les boutons de réponse, le rendu Markdown et « Nouvelle conversation ».
+Couverture : périmètre (traversée, liens symboliques, préfixes voisins), classification shell, chaque outil (confirmation, refus, non-écrasement, timeout shell), boucle agent (erreurs d'outils, limite d'étapes, annulation), client LLM, mode dossier (dry-run, sélection partielle, collisions, re-vérification, annulation, autorisation hors périmètre), stockage des réglages/historique, transcription, résolution des clés, mémoire de conversation, outil `ask_user`, analyseur Markdown, mise à jour git (nouveautés, `npm install` conditionnel, échec de compilation avec retour arrière, modifications locales, dépôt injoignable, sur de vrais dépôts temporaires). Le test e2e Linux couvre aussi le fil de conversation, les boutons de réponse, le rendu Markdown et « Nouvelle conversation ».
 
 ## À vérifier sur Mac
 
@@ -175,6 +193,7 @@ Non testable depuis la VM Linux :
 - [ ] `open -a` pour « ouvrir une app », Corbeille (`shell.trashItem`), invites d'accès aux dossiers Bureau/Documents/Téléchargements.
 - [ ] Trousseau : `safeStorage` (invite d'accès au Trousseau à la première utilisation, clé conservée entre deux lancements).
 - [ ] Conversation : mise en page (fenêtre 780×680), saisie multi-lignes avec dictée, cartes de question (boutons + saisie libre) et de confirmation avec une vraie clé Cursor : vérifier que le modèle appelle bien `ask_user` quand il manque une information, et que la mémoire de l'agent Cursor est conservée d'un message à l'autre.
+- [ ] `npm run app:install` : l'app « Cursor Launcher.app » se lance au double-clic (script shell comme exécutable, pas d'icône Dock en plus de celle d'Electron qui doit disparaître), au login, et le menu « Mettre à jour » fonctionne depuis cette app (PATH du shell de connexion, `git pull`, `npm install`, redémarrage automatique). Testé sur Linux avec un vrai dépôt distant : pull, compilation et relance automatique OK.
 - [ ] Drag & drop d'un dossier depuis le Finder (`webUtils.getPathForFile`).
 - [ ] `npm run dist` : génération du `.dmg` arm64/x64, signature/notarisation.
 
