@@ -1,0 +1,36 @@
+[hidden] { display: none !important; }
+:root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+html, body { margin: 0; background: transparent; overflow: hidden; }
+#card { box-sizing: border-box; margin: 6px; border-radius: 16px; background: rgba(28, 28, 32, 0.96); color: #f2f2f5; border: 1px solid rgba(255,255,255,0.1); padding: 10px 12px; max-height: calc(100vh - 12px); overflow-y: auto; position: relative; }
+#bar { display: flex; align-items: center; gap: 8px; }
+#prompt { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; color: inherit; font-size: 20px; padding: 8px 4px; }
+#prompt::placeholder { color: #8b8b95; }
+button { font: inherit; color: inherit; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+button:hover { background: rgba(255,255,255,0.14); }
+button.primary { background: #4b7bff; border-color: #4b7bff; }
+button.danger { background: #c0392b; border-color: #c0392b; }
+button.icon { font-size: 18px; padding: 4px 8px; background: transparent; border-color: transparent; }
+button.icon.active { background: #c0392b; animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: 0.6; } }
+#folder-chip { display: flex; align-items: center; gap: 4px; background: rgba(75,123,255,0.25); border-radius: 999px; padding: 2px 4px 2px 10px; font-size: 13px; max-width: 180px; }
+#folder-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#folder-clear { padding: 0 6px; border: 0; background: transparent; }
+#hint { font-size: 12px; color: #9a9aa5; padding: 4px 6px 0; }
+section { margin-top: 8px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; font-size: 13px; }
+.line { padding: 3px 4px; white-space: pre-wrap; word-break: break-word; }
+.line.tool { color: #8fb3ff; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+.line.ok { color: #8fd694; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+.line.err { color: #ff8f8f; }
+.line.final { font-size: 14px; }
+.move { display: flex; gap: 8px; align-items: baseline; padding: 2px 4px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+.move .to { color: #8fd694; }
+.row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+#confirm { position: sticky; bottom: 0; margin-top: 10px; background: #2b2b33; border: 1px solid rgba(255,255,255,0.2); border-radius: 12px; padding: 10px 12px; }
+#confirm h2 { margin: 0 0 6px; font-size: 15px; }
+#confirm pre { margin: 0; max-height: 200px; overflow: auto; white-space: pre-wrap; font-size: 12px; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 8px; }
+#confirm.danger { border-color: #c0392b; }
+#settings label { display: grid; grid-template-columns: 170px 1fr; gap: 8px; align-items: center; margin: 6px 0; }
+#settings input[type=text], #settings input[type=password], #settings select { background: rgba(255,255,255,0.08); color: inherit; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 5px 8px; font: inherit; }
+#settings .roots div { display: flex; justify-content: space-between; padding: 2px 0; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+#settings small { color: #9a9aa5; }
+body.drag #card { outline: 2px dashed #4b7bff; }

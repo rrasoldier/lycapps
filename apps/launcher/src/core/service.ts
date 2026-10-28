@@ -1,0 +1,199 @@
+import { randomUUID } from "node:crypto";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { runAgent } from "./agent";
+import { OpenAiCompatClient, getProvider, keyFromEnv } from "./llm";
+import {
+  applyPlan,
+  planByType,
+  planWithLlm,
+  buildPlan,
+  scanFolder,
+  undoMoves,
+  type ApplyResult,
+  type OrganizePlan,
+} from "./organizer";
+import { Scope, expandHome, realpathLoose } from "./security";
+import type { Settings } from "./settings";
+import { transcribeAudio } from "./transcribe";
+import type { ToolContext } from "./tools";
+import type { AgentEvent, Host, LlmClient } from "./types";
+
+export interface SecretStore {
+  get(name: string): string | undefined;
+  set(name: string, value: string | null): void;
+  available(): boolean;
+}
+
+export interface ServiceDeps {
+  getSettings(): Settings;
+  updateSettings(patch: Partial<Settings>): Settings;
+  home?: string;
+  secrets: SecretStore;
+  host: Host;
+  env?: NodeJS.ProcessEnv;
+  fetchImpl?: typeof fetch;
+  /** Permet d'injecter un faux LLM dans les tests. */
+  llmFactory?: (s: Settings, apiKey: string | undefined) => LlmClient;
+}
+
+export const SECRET_LLM = "llm-api-key";
+export const SECRET_TRANSCRIPTION = "transcription-api-key";
+
+export class LauncherService {
+  private plans = new Map<string, OrganizePlan>();
+  private lastApplied: ApplyResult["moved"] = [];
+  private controller: AbortController | null = null;
+
+  constructor(private readonly deps: ServiceDeps) {}
+
+  private get env() {
+    return this.deps.env ?? process.env;
+  }
+
+  scope(): Scope {
+    return new Scope({ allowedRoots: this.deps.getSettings().allowedRoots });
+  }
+
+  llmApiKey(): string | undefined {
+    const s = this.deps.getSettings();
+    return keyFromEnv(getProvider(s.provider), this.env) ?? this.deps.secrets.get(SECRET_LLM);
+  }
+
+  llmKeySource(): "env" | "keychain" | "none" {
+    const s = this.deps.getSettings();
+    if (keyFromEnv(getProvider(s.provider), this.env)) return "env";
+    return this.deps.secrets.get(SECRET_LLM) ? "keychain" : "none";
+  }
+
+  transcriptionKey(): string | undefined {
+    const s = this.deps.getSettings();
+    return (
+      this.env.LAUNCHER_TRANSCRIPTION_API_KEY ||
+      this.env.OPENAI_API_KEY ||
+      this.deps.secrets.get(SECRET_TRANSCRIPTION) ||
+      (s.provider === "openai" ? this.llmApiKey() : undefined)
+    );
+  }
+
+  private llm(): LlmClient {
+    const s = this.deps.getSettings();
+    const apiKey = this.llmApiKey();
+    if (this.deps.llmFactory) return this.deps.llmFactory(s, apiKey);
+    const preset = getProvider(s.provider);
+    if (preset.requiresKey && !apiKey) {
+      throw new Error(
+        `Aucune clé API pour ${preset.label}. Définissez ${preset.envKeys.join(" ou ")} ou enregistrez-la dans les réglages (trousseau).`,
+      );
+    }
+    const baseUrl = s.baseUrl || preset.baseUrl;
+    const model = s.model || preset.defaultModel;
+    if (!baseUrl || !model) throw new Error("URL de base et modèle requis dans les réglages.");
+    return new OpenAiCompatClient({ baseUrl, model, apiKey, fetchImpl: this.deps.fetchImpl });
+  }
+
+  private toolContext(): ToolContext {
+    const s = this.deps.getSettings();
+    return { scope: this.scope(), host: this.deps.host, projectsRoot: s.projectsRoot };
+  }
+
+  cancel(): void {
+    this.controller?.abort();
+  }
+
+  async runPrompt(prompt: string, onEvent: (e: AgentEvent) => void): Promise<string> {
+    this.controller = new AbortController();
+    try {
+      const out = await runAgent({ llm: this.llm(), ctx: this.toolContext(), prompt, onEvent, signal: this.controller.signal });
+      return out.text;
+    } finally {
+      this.controller = null;
+    }
+  }
+
+  /** Dépose/sélection d'un dossier hors périmètre : demande d'autorisation explicite. */
+  private async ensureFolderAllowed(folder: string): Promise<void> {
+    if (this.scope().contains(folder)) return;
+    const abs = path.resolve(expandHome(folder));
+    const real = realpathLoose(abs);
+    if (real === path.parse(real).root) throw new Error("Impossible d'autoriser la racine du disque.");
+    if (!fs.existsSync(real) || !fs.statSync(real).isDirectory()) throw new Error("Ce n'est pas un dossier.");
+    const isHome = real === realpathLoose(this.deps.home ?? os.homedir());
+    const ok = await this.deps.host.confirm({
+      title: "Autoriser ce dossier ?",
+      detail: [
+        real,
+        "L'agent pourra lire, écrire et déplacer des fichiers dans ce dossier et ses sous-dossiers.",
+        ...(isHome ? ["⚠ Il s'agit de votre dossier personnel entier."] : []),
+      ].join("\n"),
+      risk: isHome ? "danger" : "confirm",
+    });
+    if (!ok) throw new Error("Dossier non autorisé.");
+    const s = this.deps.getSettings();
+    this.deps.updateSettings({ allowedRoots: [...s.allowedRoots, real] });
+  }
+
+  /** Mode dossier : produit un plan, sans rien modifier (dry-run). */
+  async planFolder(folder: string, prompt: string, preset: "type" | "prompt"): Promise<{ id: string; plan: OrganizePlan }> {
+    await this.ensureFolderAllowed(folder);
+    const scope = this.scope();
+    const root = scope.resolve(folder);
+    const files = scanFolder(root);
+    if (files.length === 0) throw new Error("Aucun fichier à ranger au premier niveau de ce dossier.");
+    let plan: OrganizePlan;
+    if (preset === "type") {
+      plan = buildPlan(root, scope, files, planByType(root, files), "Rangement par type de fichier (sans IA).");
+    } else {
+      if (!prompt.trim()) throw new Error("Décrivez comment ranger ce dossier.");
+      this.controller = new AbortController();
+      try {
+        plan = await planWithLlm(this.llm(), root, scope, files, prompt, this.controller.signal);
+      } finally {
+        this.controller = null;
+      }
+    }
+    const id = randomUUID();
+    this.plans.set(id, plan);
+    return { id, plan };
+  }
+
+  async applyFolderPlan(id: string, selectedFrom?: string[]): Promise<ApplyResult> {
+    const plan = this.plans.get(id);
+    if (!plan) throw new Error("Plan introuvable ou expiré : relancez l'aperçu.");
+    const selected = selectedFrom ? new Set(selectedFrom) : undefined;
+    const count = selected ? plan.moves.filter((m) => selected.has(m.from)).length : plan.moves.length;
+    if (count === 0) throw new Error("Aucun déplacement sélectionné.");
+    const ok = await this.deps.host.confirm({
+      title: `Appliquer ${count} déplacement(s) ?`,
+      detail: `${plan.folder}\nAucun fichier ne sera supprimé ni écrasé. Annulation possible juste après.`,
+      risk: "confirm",
+    });
+    if (!ok) throw new Error("Refusé par l'utilisateur.");
+    const result = applyPlan(plan, this.scope(), selected);
+    this.lastApplied = result.moved;
+    this.plans.delete(id);
+    return result;
+  }
+
+  undoLastOrganize(): ApplyResult {
+    if (this.lastApplied.length === 0) throw new Error("Rien à annuler.");
+    const result = undoMoves(this.lastApplied, this.scope());
+    this.lastApplied = result.failed.length ? this.lastApplied.filter((m) => result.failed.some((f) => f.from === m.to)) : [];
+    return result;
+  }
+
+  async transcribe(audio: Uint8Array, mimeType: string): Promise<string> {
+    const key = this.transcriptionKey();
+    if (!key) {
+      throw new Error("Aucune clé pour la transcription (OPENAI_API_KEY ou LAUNCHER_TRANSCRIPTION_API_KEY, ou réglages).");
+    }
+    const s = this.deps.getSettings();
+    return transcribeAudio(audio, mimeType, {
+      baseUrl: s.transcriptionBaseUrl,
+      model: s.transcriptionModel,
+      apiKey: key,
+      fetchImpl: this.deps.fetchImpl,
+    });
+  }
+}
