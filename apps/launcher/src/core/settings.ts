@@ -19,7 +19,7 @@ export function defaultSettings(home = os.homedir()): Settings {
   return {
     shortcut: "Alt+Space",
     dictationShortcut: "Alt+Shift+Space",
-    provider: "openai",
+    provider: "cursor",
     baseUrl: "",
     model: "",
     transcriptionModel: "whisper-1",

@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { runAgent } from "./agent";
+import { CursorTextClient, listCursorModels, loadCursorSdk, runCursorAgent, type CursorModelInfo, type CursorSdkLike } from "./cursor";
 import { OpenAiCompatClient, getProvider, keyFromEnv } from "./llm";
 import {
   applyPlan,
@@ -34,11 +35,14 @@ export interface ServiceDeps {
   host: Host;
   env?: NodeJS.ProcessEnv;
   fetchImpl?: typeof fetch;
+  /** Chargeur du SDK Cursor (injectable pour les tests). Par défaut : `@cursor/sdk`. */
+  cursorSdk?: () => Promise<CursorSdkLike>;
   /** Permet d'injecter un faux LLM dans les tests. */
   llmFactory?: (s: Settings, apiKey: string | undefined) => LlmClient;
 }
 
-export const SECRET_LLM = "llm-api-key";
+/** Une entrée de trousseau par fournisseur : une clé n'est jamais envoyée à un autre fournisseur. */
+export const llmSecretName = (provider: string) => `llm-api-key:${provider}`;
 export const SECRET_TRANSCRIPTION = "transcription-api-key";
 
 export class LauncherService {
@@ -58,13 +62,13 @@ export class LauncherService {
 
   llmApiKey(): string | undefined {
     const s = this.deps.getSettings();
-    return keyFromEnv(getProvider(s.provider), this.env) ?? this.deps.secrets.get(SECRET_LLM);
+    return keyFromEnv(getProvider(s.provider), this.env) ?? this.deps.secrets.get(llmSecretName(s.provider));
   }
 
   llmKeySource(): "env" | "keychain" | "none" {
     const s = this.deps.getSettings();
     if (keyFromEnv(getProvider(s.provider), this.env)) return "env";
-    return this.deps.secrets.get(SECRET_LLM) ? "keychain" : "none";
+    return this.deps.secrets.get(llmSecretName(s.provider)) ? "keychain" : "none";
   }
 
   transcriptionKey(): string | undefined {
@@ -77,20 +81,42 @@ export class LauncherService {
     );
   }
 
-  private llm(): LlmClient {
-    const s = this.deps.getSettings();
+  private isCursor(): boolean {
+    return getProvider(this.deps.getSettings().provider).kind === "cursor";
+  }
+
+  private requireKey(): string {
+    const preset = getProvider(this.deps.getSettings().provider);
     const apiKey = this.llmApiKey();
-    if (this.deps.llmFactory) return this.deps.llmFactory(s, apiKey);
-    const preset = getProvider(s.provider);
     if (preset.requiresKey && !apiKey) {
       throw new Error(
         `Aucune clé API pour ${preset.label}. Définissez ${preset.envKeys.join(" ou ")} ou enregistrez-la dans les réglages (trousseau).`,
       );
     }
+    return apiKey ?? "";
+  }
+
+  private async cursorSdk(): Promise<CursorSdkLike> {
+    return (this.deps.cursorSdk ?? loadCursorSdk)();
+  }
+
+  private async llm(): Promise<LlmClient> {
+    const s = this.deps.getSettings();
+    const preset = getProvider(s.provider);
+    const apiKey = this.requireKey();
+    if (preset.kind === "cursor") return new CursorTextClient(await this.cursorSdk(), apiKey, s.model || preset.defaultModel);
+    if (this.deps.llmFactory) return this.deps.llmFactory(s, apiKey || undefined);
     const baseUrl = s.baseUrl || preset.baseUrl;
     const model = s.model || preset.defaultModel;
     if (!baseUrl || !model) throw new Error("URL de base et modèle requis dans les réglages.");
-    return new OpenAiCompatClient({ baseUrl, model, apiKey, fetchImpl: this.deps.fetchImpl });
+    return new OpenAiCompatClient({ baseUrl, model, apiKey: apiKey || undefined, fetchImpl: this.deps.fetchImpl });
+  }
+
+  /** Modèles disponibles pour la clé Cursor (catalogue du compte/équipe). */
+  async listModels(): Promise<CursorModelInfo[]> {
+    if (!this.isCursor()) throw new Error("La liste des modèles n'est disponible que pour le fournisseur Cursor.");
+    const apiKey = this.requireKey();
+    return listCursorModels(await this.cursorSdk(), apiKey);
   }
 
   private toolContext(): ToolContext {
@@ -105,7 +131,20 @@ export class LauncherService {
   async runPrompt(prompt: string, onEvent: (e: AgentEvent) => void): Promise<string> {
     this.controller = new AbortController();
     try {
-      const out = await runAgent({ llm: this.llm(), ctx: this.toolContext(), prompt, onEvent, signal: this.controller.signal });
+      if (this.isCursor()) {
+        const s = this.deps.getSettings();
+        const apiKey = this.requireKey();
+        return await runCursorAgent({
+          sdk: await this.cursorSdk(),
+          apiKey,
+          model: s.model || getProvider(s.provider).defaultModel,
+          ctx: this.toolContext(),
+          prompt,
+          onEvent,
+          signal: this.controller.signal,
+        });
+      }
+      const out = await runAgent({ llm: await this.llm(), ctx: this.toolContext(), prompt, onEvent, signal: this.controller.signal });
       return out.text;
     } finally {
       this.controller = null;
@@ -148,7 +187,7 @@ export class LauncherService {
       if (!prompt.trim()) throw new Error("Décrivez comment ranger ce dossier.");
       this.controller = new AbortController();
       try {
-        plan = await planWithLlm(this.llm(), root, scope, files, prompt, this.controller.signal);
+        plan = await planWithLlm(await this.llm(), root, scope, files, prompt, this.controller.signal);
       } finally {
         this.controller = null;
       }

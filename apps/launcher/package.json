@@ -15,7 +15,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "electron": "^33.2.0",
+    "electron": "^38.8.6",
     "electron-builder": "^25.1.8",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
@@ -23,10 +23,22 @@
   "build": {
     "appId": "app.lycapps.cursor-launcher",
     "productName": "Cursor Launcher",
-    "files": ["dist/**/*", "resources/**/*", "package.json"],
+    "files": [
+      "dist/**/*",
+      "resources/**/*",
+      "package.json"
+    ],
     "mac": {
       "category": "public.app-category.productivity",
-      "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }],
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
@@ -39,6 +51,12 @@
         "NSDesktopFolderUsageDescription": "Cursor Launcher lit et range les fichiers que vous autorisez.",
         "NSDownloadsFolderUsageDescription": "Cursor Launcher lit et range les fichiers que vous autorisez."
       }
-    }
+    },
+    "asarUnpack": [
+      "node_modules/@cursor/**/*"
+    ]
+  },
+  "dependencies": {
+    "@cursor/sdk": "^1.2.0"
   }
 }

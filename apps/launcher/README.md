@@ -25,7 +25,8 @@ Pour un MVP à itérer vite, Electron est le choix le plus pragmatique ; le cœu
 ## Prérequis
 
 - macOS 12+ (Apple Silicon ou Intel), Node.js 20+ et npm.
-- Une clé API d'un fournisseur de LLM compatible OpenAI avec appel d'outils (OpenAI, Anthropic via son endpoint compatible, OpenRouter) ou un modèle local Ollama.
+- Une clé **Cursor** (recommandé, voir [Utiliser sa clé Cursor](#utiliser-sa-clé-cursor)), ou une clé d'un fournisseur compatible OpenAI avec appel d'outils (OpenAI, Anthropic via son endpoint compatible, OpenRouter), ou un modèle local Ollama.
+- Electron 38 est embarqué (Node 22.22) : requis par le SDK Cursor (Node ≥ 22.13).
 
 ## Installation et lancement
 
@@ -44,16 +45,36 @@ Options de ligne de commande : `--show` affiche la fenêtre au démarrage (prati
 
 Jamais dans le code ni dans `settings.json`. Ordre de résolution :
 
-1. Variable d'environnement : `LAUNCHER_API_KEY`, sinon celle du fournisseur (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`).
-2. Trousseau : saisie dans les réglages, chiffrée avec `safeStorage` d'Electron (clé stockée dans le Trousseau macOS).
+1. Variable d'environnement : `CURSOR_API_KEY` (fournisseur Cursor), ou `LAUNCHER_API_KEY` puis celle du fournisseur (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`) pour les autres. `LAUNCHER_API_KEY` n'est **jamais** utilisée pour Cursor, pour ne pas envoyer par erreur la clé d'un autre fournisseur à Cursor.
+2. Trousseau : saisie dans les réglages, chiffrée avec `safeStorage` d'Electron (clé stockée dans le Trousseau macOS). Une entrée **par fournisseur** : changer de fournisseur n'envoie jamais la clé de l'un à l'autre.
 
 Une app lancée depuis le Finder **n'hérite pas** des variables de votre shell. Soit utiliser les réglages (recommandé), soit `launchctl setenv OPENAI_API_KEY sk-...` puis relancer l'app, soit lancer depuis un terminal : `OPENAI_API_KEY=... npm start`.
 
-Dictée : `LAUNCHER_TRANSCRIPTION_API_KEY`, sinon `OPENAI_API_KEY`, sinon clé saisie dans les réglages, sinon la clé du fournisseur si c'est OpenAI. Le modèle (`whisper-1`) et l'URL se règlent dans `settings.json` (`transcriptionModel`, `transcriptionBaseUrl`).
+Dictée (Cursor n'offre pas de transcription : il faut une clé compatible Whisper, par ex. OpenAI, même si l'agent utilise Cursor) : `LAUNCHER_TRANSCRIPTION_API_KEY`, sinon `OPENAI_API_KEY`, sinon clé saisie dans les réglages, sinon la clé du fournisseur si c'est OpenAI. Le modèle (`whisper-1`) et l'URL se règlent dans `settings.json` (`transcriptionModel`, `transcriptionBaseUrl`).
 
 ### Réglages
 
 Stockés dans `~/Library/Application Support/Cursor Launcher/settings.json` (permissions `600`) : raccourcis (format [accélérateur Electron](https://www.electronjs.org/docs/latest/api/accelerator), ex. `CommandOrControl+Shift+Space`), fournisseur / URL / modèle, dossiers autorisés, dossier des projets, lancement au login. L'historique des prompts est dans `history.json` (100 entrées max, effaçable depuis les réglages). Navigation : `↑` / `↓` dans la barre de prompt.
+
+## Utiliser sa clé Cursor
+
+Recherche faite dans la documentation officielle ([vue d'ensemble des API](https://cursor.com/docs/api), [SDK TypeScript](https://cursor.com/docs/sdk/typescript)) :
+
+- Cursor **ne documente pas d'API de modèles / chat-completions** utilisable avec une clé Cursor (« The Cursor SDK is an agent SDK, not a standalone model-inference or chat-completions API »). On ne peut donc pas brancher la clé Cursor sur le client OpenAI-compatible.
+- Ce qui existe : le **SDK officiel `@cursor/sdk`** (public beta, tous les utilisateurs), avec un runtime **local** : la boucle d'agent tourne dans notre processus, l'inférence reste hébergée par Cursor (donc tous les modèles de votre compte, dont Claude). Clé : *user API key* (cursor.com/dashboard/cloud-agents ou Dashboard → API Keys) ou clé de compte de service. La consommation suit votre forfait Cursor (étiquette « SDK » dans le tableau d'usage), sans clé Anthropic.
+- Les **Cloud Agents** (VM Cursor + dépôt Git) ne conviennent pas : ils n'agissent pas sur votre Mac.
+
+Intégration dans le lanceur (fournisseur **« Cursor »**, choisi par défaut) :
+
+1. Définir `CURSOR_API_KEY` (ou la saisir dans ⚙ → Clé API, stockée dans le trousseau).
+2. ⚙ → Modèle : défaut `composer-2.5` ; « Lister les modèles » interroge `Cursor.models.list()` (catalogue de **votre** compte/équipe, où choisir un modèle Claude).
+3. Les outils intégrés du SDK (shell, édition…) sont **désactivés** (`tools: ["mcp"]`). On lui expose uniquement **nos** outils via `local.customTools` : ils passent par le même périmètre de dossiers et les mêmes confirmations que pour les autres fournisseurs. Le mode dossier utilise un agent « texte seul » (`tools: []`) pour proposer le plan, validé ensuite par notre code.
+
+Limites propres à Cursor :
+- Le SDK est un agent complet, pas un simple modèle : un prompt = un agent éphémère (pas de mémoire entre deux prompts), pas de streaming dans l'UI (résultat à la fin), latence supérieure à un appel direct. Le prompt système Cursor reste en place (orienté code) ; nos consignes sont ajoutées au message (`systemPrompt` personnalisé = option réservée aux comptes autorisés).
+- Licence : `@cursor/sdk` est propriétaire (« Anysphere, soumis aux conditions d'utilisation de Cursor ») ; vérifier que la redistribution dans un `.dmg` vous convient.
+- Compatibilité avec un compte réel : le chargement du SDK dans Electron 38 et l'acceptation de nos options (`tools`, `customTools`) sont vérifiés (rejet « Invalid User API Key » par Cursor avec une fausse clé), mais **aucun appel complet n'a pu être testé sans clé valide** : voir la liste « À vérifier ».
+- Packaging : le SDK embarque des binaires par plateforme (`@cursor/sdk-darwin-arm64`, `-x64`) ; `asarUnpack` est configuré, mais construire séparément chaque architecture (ou installer les deux paquets) et vérifier l'app signée.
 
 ## Utilisation
 
@@ -113,6 +134,7 @@ src/core/        Logique pure, sans Electron (testée)
   tools.ts         Outils de l'agent + politique de confirmation
   agent.ts         Boucle LLM ↔ outils (12 étapes max, annulable)
   llm.ts           Client « chat completions » compatible OpenAI + presets de fournisseurs
+  cursor.ts        Fournisseur Cursor : SDK officiel (runtime local) + nos outils en customTools
   organizer.ts     Mode dossier : scan, plan (par type / via LLM), validation, application, annulation
   service.ts       Orchestration (clés, plans en attente, autorisation de dossier, transcription)
   settings.ts      Réglages et historique (JSON)
@@ -120,7 +142,7 @@ src/core/        Logique pure, sans Electron (testée)
 src/main/        Processus principal Electron : fenêtre, tray, raccourcis, IPC, trousseau (safeStorage)
 src/preload/     Pont contextBridge minimal (API typée, pas d'accès Node)
 src/renderer/    UI (HTML/CSS/TS sans framework) : barre de prompt, aperçu de plan, confirmations, réglages, micro
-test/            Tests Vitest (58 tests)
+test/            Tests Vitest (70 tests)
 scripts/         copy-assets, gen-icons (icône tray), e2e-smoke (Linux/Xvfb)
 ```
 
@@ -129,7 +151,7 @@ Le renderer ne touche jamais au disque : tout passe par l'IPC vers le processus 
 ## Tests
 
 ```bash
-npm test             # 58 tests unitaires/intégration (Vitest)
+npm test             # 70 tests unitaires/intégration (Vitest)
 npm run typecheck
 npm run build
 npm run e2e:linux    # app Electron réelle sous Xvfb + faux serveur LLM (nécessite xvfb-run)
@@ -145,6 +167,7 @@ Non testable depuis la VM Linux :
 - [ ] Pas d'icône Dock (`setActivationPolicy('accessory')` + `LSUIElement` dans le `.dmg`), icône « template » correcte en mode clair/sombre, menu de la barre de menus.
 - [ ] Prise de focus de la fenêtre depuis une autre app, masquage à la perte de focus, restitution du focus à l'app précédente (`app.hide()`).
 - [ ] Lancement au login (`setLoginItemSettings`, visible dans Réglages Système → Général → Éléments de connexion).
+- [ ] **Fournisseur Cursor** avec une vraie clé : un prompt avec appel d'outil (ex. « liste mon dossier Downloads »), confirmation affichée pour un shell, annulation (Échap), « Lister les modèles » et sélection d'un modèle Claude, mode dossier. Vérifier aussi que le modèle appelle bien nos outils `custom-user-tools` (et qu'aucun outil intégré Cursor n'est proposé), le chargement du SDK dans l'app packagée (`asarUnpack`, binaire darwin) et l'usage « SDK » dans le tableau de bord Cursor.
 - [ ] Dictée : invite micro, `MediaRecorder` WebM/Opus dans Electron macOS, qualité Whisper en français, raccourci `Option+Maj+Espace`. Limite connue : `globalShortcut` ne détecte pas le relâchement d'une touche, donc le raccourci global **bascule** (démarrer/arrêter) ; le vrai push-to-talk (maintien) n'existe que sur le bouton micro.
 - [ ] `open -a` pour « ouvrir une app », Corbeille (`shell.trashItem`), invites d'accès aux dossiers Bureau/Documents/Téléchargements.
 - [ ] Trousseau : `safeStorage` (invite d'accès au Trousseau à la première utilisation, clé conservée entre deux lancements).
@@ -153,7 +176,7 @@ Non testable depuis la VM Linux :
 
 ## Limites et pistes
 
-- Un seul fournisseur « style OpenAI » à la fois ; pas de streaming des réponses (résultat affiché en fin d'étape).
+- Un seul fournisseur à la fois (Cursor, ou OpenAI-compatible) ; pas de streaming des réponses (résultat affiché en fin d'étape).
 - Pas de mémoire de conversation entre deux prompts (l'historique ne rejoue que le texte des prompts).
 - Mode dossier non récursif ; l'annulation ne couvre que le dernier rangement de la session.
 - Pas de pilotage d'UI (clics, saisie) ni de lecture d'écran : prévu après validation du MVP.

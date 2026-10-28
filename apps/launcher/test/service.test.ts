@@ -2,9 +2,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { keyFromEnv, getProvider } from "../src/core/llm";
-import { LauncherService, SECRET_LLM, type SecretStore } from "../src/core/service";
+import { LauncherService, llmSecretName, type SecretStore } from "../src/core/service";
 import { defaultSettings, HistoryStore, SettingsStore, type Settings } from "../src/core/settings";
 import { transcribeAudio } from "../src/core/transcribe";
+import type { CursorSdkLike } from "../src/core/cursor";
 import type { LlmClient } from "../src/core/types";
 import { makeSandbox } from "./helpers";
 
@@ -16,10 +17,10 @@ function memorySecrets(initial: Record<string, string> = {}): SecretStore {
   return { get: (n) => m.get(n), set: (n, v) => void (v ? m.set(n, v) : m.delete(n)), available: () => true };
 }
 
-function makeService(opts: { env?: NodeJS.ProcessEnv; secrets?: SecretStore; llm?: LlmClient; answer?: boolean } = {}) {
+function makeService(opts: { env?: NodeJS.ProcessEnv; secrets?: SecretStore; llm?: LlmClient; answer?: boolean; provider?: string; model?: string; cursorSdk?: () => Promise<CursorSdkLike> } = {}) {
   sb = makeSandbox();
   sb.host.answer = opts.answer ?? true;
-  let settings: Settings = { ...defaultSettings(sb.base), allowedRoots: [sb.root], projectsRoot: path.join(sb.root, "Projects") };
+  let settings: Settings = { ...defaultSettings(sb.base), provider: opts.provider ?? "openai", model: opts.model ?? "", allowedRoots: [sb.root], projectsRoot: path.join(sb.root, "Projects") };
   const service = new LauncherService({
     getSettings: () => settings,
     updateSettings: (p) => (settings = { ...settings, ...p }),
@@ -28,16 +29,17 @@ function makeService(opts: { env?: NodeJS.ProcessEnv; secrets?: SecretStore; llm
     host: sb.host,
     env: opts.env ?? {},
     llmFactory: opts.llm ? () => opts.llm! : undefined,
+    cursorSdk: opts.cursorSdk,
   });
   return { service, getSettings: () => settings };
 }
 
 describe("LauncherService", () => {
   it("clé API : variable d'environnement prioritaire, puis trousseau, jamais en dur", () => {
-    const { service } = makeService({ env: { OPENAI_API_KEY: "env-key" }, secrets: memorySecrets({ [SECRET_LLM]: "kc-key" }) });
+    const { service } = makeService({ env: { OPENAI_API_KEY: "env-key" }, secrets: memorySecrets({ [llmSecretName("openai")]: "kc-key" }) });
     expect(service.llmApiKey()).toBe("env-key");
     expect(service.llmKeySource()).toBe("env");
-    const b = makeService({ secrets: memorySecrets({ [SECRET_LLM]: "kc-key" }) });
+    const b = makeService({ secrets: memorySecrets({ [llmSecretName("openai")]: "kc-key" }) });
     expect(b.service.llmApiKey()).toBe("kc-key");
     expect(b.service.llmKeySource()).toBe("keychain");
     const c = makeService();
@@ -100,7 +102,7 @@ describe("LauncherService", () => {
         return { role: "assistant", content: '{"summary":"s","assignments":[{"name":"a.txt","dest":"Notes"}]}' };
       },
     };
-    const { service } = makeService({ llm });
+    const { service } = makeService({ llm, env: { OPENAI_API_KEY: "k" } });
     fs.writeFileSync(path.join(sb.root, "a.txt"), "x");
     await expect(service.planFolder(sb.root, "  ", "prompt")).rejects.toThrow();
     const { plan } = await service.planFolder(sb.root, "range les notes", "prompt");
@@ -135,11 +137,12 @@ describe("stockage", () => {
     const file = path.join(sb.base, "cfg", "settings.json");
     const s1 = new SettingsStore(file, sb.base);
     expect(s1.get().shortcut).toBe("Alt+Space");
+    expect(s1.get().provider).toBe("cursor");
     s1.update({ shortcut: "Cmd+Shift+Space", allowedRoots: ["/a", "/a", " /b "] });
     const s2 = new SettingsStore(file, sb.base);
     expect(s2.get().shortcut).toBe("Cmd+Shift+Space");
     expect(s2.get().allowedRoots).toEqual(["/a", "/b"]);
-    expect(s2.get().provider).toBe("openai");
+    expect(s2.get().provider).toBe("cursor");
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
     expect(fs.readFileSync(file, "utf8")).not.toMatch(/api[-_]?key/i);
   });

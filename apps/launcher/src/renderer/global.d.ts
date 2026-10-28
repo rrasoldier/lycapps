@@ -57,6 +57,7 @@ interface LauncherApi {
   updateSettings(patch: Partial<LauncherState["settings"]>): Promise<{ state: LauncherState; errors: string[] }>;
   setSecret(name: "llm" | "transcription", value: string | null): Promise<{ state: LauncherState; error: string | null }>;
   runPrompt(prompt: string): Promise<{ ok: boolean; text: string }>;
+  listModels(): Promise<{ ok: true; models: Array<{ id: string; displayName: string }> } | { ok: false; error: string }>;
   cancel(): Promise<void>;
   clearHistory(): Promise<string[]>;
   pickFolder(): Promise<string | null>;

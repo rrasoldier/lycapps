@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld("launcher", {
   updateSettings: (patch: unknown) => ipcRenderer.invoke("settings:update", patch),
   setSecret: (name: string, value: string | null) => ipcRenderer.invoke("secret:set", name, value),
   runPrompt: (prompt: string) => ipcRenderer.invoke("agent:run", prompt),
+  listModels: () => ipcRenderer.invoke("models:list"),
   cancel: () => ipcRenderer.invoke("agent:cancel"),
   clearHistory: () => ipcRenderer.invoke("history:clear"),
   pickFolder: () => ipcRenderer.invoke("folder:pick"),

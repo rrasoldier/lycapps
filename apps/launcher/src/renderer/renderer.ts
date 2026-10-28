@@ -362,6 +362,29 @@ function openSettings(): void {
   const shortcut = textInput(s.shortcut, "Alt+Space");
   const dictation = textInput(s.dictationShortcut, "Alt+Shift+Space");
   const projects = textInput(s.projectsRoot);
+  provider.onchange = () => {
+    const preset = state.providers.find((p) => p.id === provider.value);
+    baseUrl.value = "";
+    model.value = "";
+    baseUrl.placeholder = preset?.baseUrl ?? "";
+    model.placeholder = preset?.defaultModel ?? "";
+  };
+  const modelsBtn = el("button", "", "Lister les modèles");
+  const modelList = el("datalist");
+  modelList.id = "model-list";
+  model.setAttribute("list", "model-list");
+  modelsBtn.onclick = async () => {
+    messages.className = "line";
+    messages.textContent = "Chargement des modèles…";
+    const r = await api.listModels();
+    if (!r.ok) {
+      messages.className = "line err";
+      messages.textContent = r.error;
+      return;
+    }
+    modelList.replaceChildren(...r.models.map((m) => new Option(m.displayName, m.id)));
+    messages.textContent = `${r.models.length} modèle(s) : cliquez dans le champ Modèle pour choisir.`;
+  };
   const apiKey = el("input");
   apiKey.type = "password";
   apiKey.placeholder = state.llmKeySource === "none" ? "Clé API (stockée dans le trousseau)" : `Clé déjà définie (${state.llmKeySource})`;
@@ -373,9 +396,11 @@ function openSettings(): void {
   login.checked = s.launchAtLogin;
 
   settingsEl.append(
+    modelList,
     field("Fournisseur", provider),
-    field("URL de base", baseUrl),
-    field("Modèle", model),
+    field("URL de base", baseUrl, "Ignorée par le fournisseur Cursor."),
+    field("Modèle", model, "Fournisseur Cursor : « Lister les modèles » interroge le catalogue de votre compte (ex. modèles Claude)."),
+    field("", modelsBtn),
     field("Clé API", apiKey, state.secretsAvailable ? "Variables d'environnement prioritaires (LAUNCHER_API_KEY, OPENAI_API_KEY…)." : "Trousseau indisponible : utilisez une variable d'environnement."),
     field("Clé dictée (Whisper)", sttKey),
     field("Raccourci principal", shortcut, "Format Electron, ex. Alt+Space, CommandOrControl+Shift+Space"),

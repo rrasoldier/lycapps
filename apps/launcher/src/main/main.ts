@@ -16,7 +16,7 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 import { getProvider, PROVIDERS } from "../core/llm";
-import { LauncherService, SECRET_LLM, SECRET_TRANSCRIPTION } from "../core/service";
+import { LauncherService, llmSecretName, SECRET_TRANSCRIPTION } from "../core/service";
 import { HistoryStore, SettingsStore, type Settings } from "../core/settings";
 import type { ConfirmRequest, Host } from "../core/types";
 import { KeychainSecrets } from "./secrets";
@@ -208,7 +208,7 @@ function registerIpc(): void {
   });
 
   ipcMain.handle("secret:set", (_e, name: string, value: string | null) => {
-    const key = name === "transcription" ? SECRET_TRANSCRIPTION : SECRET_LLM;
+    const key = name === "transcription" ? SECRET_TRANSCRIPTION : llmSecretName(settingsStore.get().provider);
     try {
       secrets.set(key, value);
       return { state: buildState(), error: null };
@@ -225,6 +225,13 @@ function registerIpc(): void {
       return { ok: true, text };
     } catch (err) {
       return { ok: false, text: errorMessage(err) };
+    }
+  });
+  ipcMain.handle("models:list", async () => {
+    try {
+      return { ok: true, models: await service.listModels() };
+    } catch (err) {
+      return { ok: false, error: errorMessage(err) };
     }
   });
   ipcMain.handle("agent:cancel", () => service.cancel());

@@ -8,10 +8,13 @@ export interface ProviderPreset {
   /** Variables d'environnement consultées, par ordre de priorité. */
   envKeys: string[];
   requiresKey: boolean;
+  /** « cursor » = SDK Cursor (agent hébergé), sinon API chat-completions compatible OpenAI. */
+  kind?: "openai-compat" | "cursor";
 }
 
-/** Tous les fournisseurs parlent l'API « chat completions » compatible OpenAI. */
+/** Sauf « cursor », tous les fournisseurs parlent l'API « chat completions » compatible OpenAI. */
 export const PROVIDERS: ProviderPreset[] = [
+  { id: "cursor", label: "Cursor (clé Cursor, SDK officiel)", baseUrl: "", defaultModel: "composer-2.5", envKeys: ["CURSOR_API_KEY"], requiresKey: true, kind: "cursor" },
   { id: "openai", label: "OpenAI", baseUrl: "https://api.openai.com/v1", defaultModel: "gpt-4.1-mini", envKeys: ["LAUNCHER_API_KEY", "OPENAI_API_KEY"], requiresKey: true },
   { id: "anthropic", label: "Anthropic (API compatible OpenAI)", baseUrl: "https://api.anthropic.com/v1", defaultModel: "claude-sonnet-4-5", envKeys: ["LAUNCHER_API_KEY", "ANTHROPIC_API_KEY"], requiresKey: true },
   { id: "openrouter", label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", defaultModel: "openai/gpt-4.1-mini", envKeys: ["LAUNCHER_API_KEY", "OPENROUTER_API_KEY"], requiresKey: true },
@@ -20,7 +23,7 @@ export const PROVIDERS: ProviderPreset[] = [
 ];
 
 export function getProvider(id: string): ProviderPreset {
-  return PROVIDERS.find((p) => p.id === id) ?? PROVIDERS[0];
+  return PROVIDERS.find((p) => p.id === id) ?? PROVIDERS.find((p) => p.id === "openai")!;
 }
 
 export function keyFromEnv(preset: ProviderPreset, env: NodeJS.ProcessEnv = process.env): string | undefined {
