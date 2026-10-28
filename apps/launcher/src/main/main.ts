@@ -160,8 +160,12 @@ function registerShortcuts(s: Settings): string[] {
 }
 
 function applyLoginItem(s: Settings): void {
-  if (process.platform === "darwin" || process.platform === "win32") {
+  if (process.platform !== "darwin" && process.platform !== "win32") return;
+  try {
+    if (app.getLoginItemSettings().openAtLogin === s.launchAtLogin) return;
     app.setLoginItemSettings({ openAtLogin: s.launchAtLogin, openAsHidden: true });
+  } catch {
+    /* app non signée (développement) : macOS peut refuser, sans conséquence */
   }
 }
 
