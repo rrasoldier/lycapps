@@ -601,6 +601,11 @@ document.addEventListener("keydown", (e) => {
     void newConversation();
     return;
   }
+  if (e.metaKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "q") {
+    e.preventDefault();
+    void api.quit();
+    return;
+  }
   if (pendingAsk && promptEl.value === "" && /^[1-9]$/.test(e.key) && !e.metaKey && !e.ctrlKey) {
     const choice = pendingAsk.view.choices[Number(e.key) - 1];
     if (choice) {
@@ -645,6 +650,7 @@ async function newConversation(): Promise<void> {
   fit();
 }
 $("new-btn").onclick = () => void newConversation();
+$("quit-btn").onclick = () => void api.quit();
 
 $("folder-btn").onclick = async () => {
   const p = await api.pickFolder();
@@ -1067,6 +1073,10 @@ function openSettings(): void {
     c.checked = value;
     return c;
   };
+  const showInDock = checkbox(s.showInDock);
+  const trayLabel = checkbox(s.trayLabel);
+  const quitBtn = el("button", "danger", "Quitter Cursor Launcher");
+  quitBtn.onclick = () => void api.quit();
   const sttEngine = el("select");
   for (const [v, l] of [["auto", "Automatique (local si installé, sinon clé API)"], ["local", "Local uniquement (Whisper, gratuit)"], ["api", "API uniquement (clé Whisper)"]] as const) {
     sttEngine.add(new Option(l, v, false, v === s.sttEngine));
@@ -1138,6 +1148,9 @@ function openSettings(): void {
     el("h2", "section", "Général"),
     field("Dossier des projets", projects),
     field("Lancer au démarrage", login),
+    field("Nom dans la barre de menus", trayLabel, "Affiche « Lanceur » à côté de l'icône pour la repérer plus facilement."),
+    field("Afficher dans le Dock", showInDock, "Secours si l'icône de la barre de menus reste invisible : clic droit sur l'icône du Dock → Quitter."),
+    field("", quitBtn),
     field("Mises à jour auto", autoUpdate, "Vérifie au démarrage (git pull + compilation) et redémarre si une nouvelle version est installée."),
     field("Version", updateInfo),
     field("", updateBtn),
@@ -1197,6 +1210,8 @@ function openSettings(): void {
       projectsRoot: projects.value.trim(),
       launchAtLogin: login.checked,
       autoUpdate: autoUpdate.checked,
+      showInDock: showInDock.checked,
+      trayLabel: trayLabel.checked,
       sttEngine: sttEngine.value as LauncherState["settings"]["sttEngine"],
       speakReplies: speakReplies.checked,
       ttsVoice: voiceSelect.value,

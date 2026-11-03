@@ -11,6 +11,8 @@ interface LauncherState {
     projectsRoot: string;
     launchAtLogin: boolean;
     autoUpdate: boolean;
+    showInDock: boolean;
+    trayLabel: boolean;
     speakReplies: boolean;
     ttsVoice: string;
     ttsRate: number;
@@ -122,6 +124,7 @@ interface LauncherApi {
   openLink(url: string): Promise<void>;
   resize(height: number): Promise<void>;
   hide(): Promise<void>;
+  quit(): Promise<void>;
   onShown(cb: () => void): () => void;
   onToggleDictation(cb: () => void): () => void;
   onOpenSettings(cb: () => void): () => void;

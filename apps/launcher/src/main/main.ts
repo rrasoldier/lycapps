@@ -5,7 +5,6 @@ import {
   globalShortcut,
   ipcMain,
   Menu,
-  nativeImage,
   Notification,
   screen,
   session,
@@ -24,6 +23,7 @@ import { makeRunner, Updater, type UpdateStatus } from "../core/updater";
 import type { AskRequest, ConfirmRequest, Host } from "../core/types";
 import { cleanTranscript, interpretConfirmation, isEndPhrase, matchChoice, matchWake, plainForSpeech } from "../core/voice";
 import { KeychainSecrets } from "./secrets";
+import { createTrayIcon } from "./trayIcon";
 import { createSpeaker, listVoices, resolveVoice } from "./speech";
 
 const WIDTH = 780;
@@ -217,6 +217,57 @@ function applyLoginItem(s: Settings): void {
   }
 }
 
+function quitApp(): void {
+  quitting = true;
+  resolvePending();
+  app.quit();
+}
+
+/** Dock : normalement masqué ; affiché sur demande (ou automatiquement si l'icône de barre de menus est introuvable). */
+function applyDock(show: boolean): void {
+  if (process.platform !== "darwin") return;
+  try {
+    if (show) {
+      app.setActivationPolicy("regular");
+      void app.dock?.show();
+    } else {
+      app.setActivationPolicy("accessory");
+      app.dock?.hide();
+    }
+  } catch {
+    /* sans conséquence : la barre de menus reste utilisable */
+  }
+}
+
+function applyTrayTitle(): void {
+  if (!tray || process.platform !== "darwin") return;
+  tray.setTitle(settingsStore.get().trayLabel ? " Lanceur" : "");
+}
+
+/** macOS cache silencieusement les icônes qui ne tiennent pas dans la barre (encoche) ou que l'utilisateur a masquées. */
+function trayLooksHidden(): boolean {
+  if (!tray || process.platform !== "darwin") return false;
+  const b = tray.getBounds();
+  if (b.width <= 0 || b.height <= 0) return true;
+  return !screen.getAllDisplays().some((d) => b.x >= d.bounds.x && b.x < d.bounds.x + d.bounds.width && b.y >= d.bounds.y && b.y < d.bounds.y + d.bounds.height);
+}
+
+function installAppMenu(): void {
+  const template: Electron.MenuItemConstructorOptions[] = [
+    {
+      label: "Cursor Launcher",
+      submenu: [
+        { label: "Réglages…", accelerator: "CommandOrControl+,", click: () => { showWindow(); win?.webContents.send("ui:open-settings"); } },
+        { type: "separator" },
+        { label: "Masquer le lanceur", accelerator: "CommandOrControl+W", click: hideWindow },
+        { label: "Quitter Cursor Launcher", accelerator: "CommandOrControl+Q", click: quitApp },
+      ],
+    },
+    { label: "Édition", submenu: [{ role: "undo" }, { role: "redo" }, { type: "separator" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }] },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 function buildState() {
   const s = settingsStore.get();
   const preset = getProvider(s.provider);
@@ -256,6 +307,8 @@ function registerIpc(): void {
     const errors = registerShortcuts(s);
     applyLoginItem(s);
     refreshTrayMenu();
+    applyTrayTitle();
+    applyDock(s.showInDock);
     return { state: buildState(), errors };
   });
 
@@ -392,6 +445,7 @@ function registerIpc(): void {
     win.setSize(WIDTH, h);
     keepOnScreen();
   });
+  ipcMain.handle("app:quit", () => quitApp());
   ipcMain.handle("ui:hide", () => {
     resolvePending();
     hideWindow();
@@ -489,19 +543,36 @@ function refreshTrayMenu(): void {
         click: (item) => settingsStore.update({ autoUpdate: item.checked }),
       },
       { type: "separator" },
-      { label: "Quitter", click: () => { quitting = true; app.quit(); } },
+      {
+        label: "Afficher aussi dans le Dock",
+        type: "checkbox",
+        checked: s.showInDock,
+        click: (item) => {
+          settingsStore.update({ showInDock: item.checked });
+          applyDock(item.checked);
+        },
+      },
+      { label: "Quitter Cursor Launcher", accelerator: "CommandOrControl+Q", click: quitApp },
     ]),
   );
 }
 
 function createTray(): void {
-  const icon = nativeImage.createFromPath(path.join(__dirname, "../../resources/trayTemplate.png"));
-  icon.setTemplateImage(true);
-  tray = new Tray(icon);
+  tray = new Tray(createTrayIcon());
   tray.setToolTip("Cursor Launcher");
-  if (icon.isEmpty()) tray.setTitle("🔍");
+  applyTrayTitle();
   tray.on("click", toggleWindow);
   refreshTrayMenu();
+}
+
+/** Si macOS masque l'icône, l'app se rend accessible par le Dock (clic droit → Quitter) plutôt que de rester introuvable. */
+function ensureReachable(): void {
+  if (process.platform !== "darwin" || E2E || settingsStore.get().showInDock) return;
+  setTimeout(() => {
+    if (!trayLooksHidden()) return;
+    applyDock(true);
+    notify("L'icône de la barre de menus est masquée par macOS : Cursor Launcher apparaît dans le Dock (clic droit → Quitter).");
+  }, 2500);
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -521,16 +592,15 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(() => {
-    if (process.platform === "darwin") {
-      app.setActivationPolicy("accessory");
-      app.dock?.hide();
-    }
+    applyDock(settingsStore.get().showInDock);
+    installAppMenu();
     session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === "media"));
     session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === "media");
 
     registerIpc();
     win = createWindow();
     createTray();
+    ensureReachable();
     const s = settingsStore.get();
     const errors = registerShortcuts(s);
     applyLoginItem(s);

@@ -35,7 +35,7 @@ Pour un MVP à itérer vite, Electron est le choix le plus pragmatique ; le cœu
 cd apps/launcher
 npm install
 npm run build
-npm start            # build + lance l'app (pas de Dock : cherchez l'icône 🔍 dans la barre de menus)
+npm start            # build + lance l'app (pas de Dock par défaut : icône « Lanceur » dans la barre de menus ; sinon voir le dépannage ci-dessous)
 ```
 
 Premier lancement : appuyez sur `Option+Espace`, ouvrez les réglages (⚙) et renseignez le fournisseur / modèle / clé.
@@ -60,10 +60,11 @@ Ensuite : double-clic sur **Cursor Launcher** (Finder, Launchpad, Spotlight), ou
 
 Attention : une app lancée depuis le Finder ne voit pas les variables définies dans `~/.zshrc` (ex. `CURSOR_API_KEY`). Saisissez la clé dans ⚙ → Clé API (stockée dans le Trousseau), ou exportez-la dans `~/.zprofile`.
 
-**Icône 🔍 introuvable dans la barre de menus** (l'app tourne pourtant : `Option+Espace` fonctionne) :
-1. Réglages Système → **Barre des menus** → section « Autoriser dans la barre des menus » : activer **Electron** / **Cursor Launcher** (macOS 13+ peut masquer une app dont l'identité a changé, par ex. après être passé de `npm start` à `Cursor Launcher.app`).
-2. Barre de menus saturée (surtout avec l'encoche) : fermer/retirer d'autres icônes (⌘ + glisser hors de la barre) ou réduire leur nombre.
-3. Rouvrir l'app (double-clic sur `Cursor Launcher.app`) affiche aussi la fenêtre, d'où l'on peut ouvrir ⚙ ; le menu « Quitter » n'est accessible que par l'icône : sinon, Moniteur d'activité → Electron → Quitter.
+**Icône de la barre de menus invisible** (l'app tourne pourtant : `Option+Espace` fonctionne). L'app ne dépend plus de cette icône :
+- **Quitter sans l'icône** : bouton ⏻ à droite de la barre de saisie, bouton « Quitter Cursor Launcher » dans ⚙, ou `⌘Q` quand la fenêtre est affichée (`Option+Espace`).
+- **Dock de secours** : si macOS masque l'icône (position hors écran, encoche, barre saturée), l'app s'ajoute d'elle-même au Dock (clic droit → Quitter) et le signale par une notification. À la main : ⚙ → « Afficher dans le Dock ».
+- **Icône plus repérable** : l'icône est embarquée dans le code (plus de fichier à retrouver) et affiche « Lanceur » à côté (décochable : ⚙ → « Nom dans la barre de menus »).
+- Si l'icône reste absente malgré tout : Réglages Système → **Barre des menus** → « Autoriser dans la barre des menus » (macOS 13+), ou libérer de la place (⌘ + glisser les autres icônes hors de la barre). Ce n'est plus nécessaire pour quitter.
 
 ### Clés API
 
@@ -210,7 +211,7 @@ Le renderer ne touche jamais au disque : tout passe par l'IPC vers le processus 
 ## Tests
 
 ```bash
-npm test             # 149 tests unitaires/intégration (Vitest)
+npm test             # 151 tests unitaires/intégration (Vitest)
 npm run typecheck
 npm run build
 npm run e2e:linux    # app Electron réelle sous Xvfb + faux serveur LLM (nécessite xvfb-run)
@@ -225,6 +226,7 @@ Non testable depuis la VM Linux :
 
 - [ ] `Option+Espace` : raccourci global, éventuel conflit avec Spotlight/Alfred/clavier (changer dans les réglages), affichage au-dessus des apps en plein écran et sur tous les Spaces.
 - [ ] Pas d'icône Dock (`setActivationPolicy('accessory')` + `LSUIElement` dans le `.dmg`), icône « template » correcte en mode clair/sombre, menu de la barre de menus.
+- [ ] **Barre de menus** : icône embarquée + « Lanceur » visible ; si masquée, repli automatique sur le Dock (`tray.getBounds()` hors écran : heuristique non vérifiée sur Mac) ; `⌘Q`, bouton ⏻, bouton dans ⚙ et « Afficher dans le Dock » quittent bien l'app.
 - [ ] Prise de focus de la fenêtre depuis une autre app, masquage à la perte de focus, restitution du focus à l'app précédente (`app.hide()`).
 - [ ] Lancement au login (`setLoginItemSettings`, visible dans Réglages Système → Général → Éléments de connexion).
 - [ ] **Fournisseur Cursor** avec une vraie clé : un prompt avec appel d'outil (ex. « liste mon dossier Downloads »), confirmation affichée pour un shell, annulation (Échap), « Lister les modèles » et sélection d'un modèle Claude, mode dossier. Vérifier aussi que le modèle appelle bien nos outils `custom-user-tools` (et qu'aucun outil intégré Cursor n'est proposé), le chargement du SDK dans l'app packagée (`asarUnpack`, binaire darwin) et l'usage « SDK » dans le tableau de bord Cursor.

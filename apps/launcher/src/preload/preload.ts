@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld("launcher", {
   answerConfirm: (id: string, ok: boolean) => ipcRenderer.invoke("confirm:answer", id, ok),
   resize: (height: number) => ipcRenderer.invoke("ui:resize", height),
   hide: () => ipcRenderer.invoke("ui:hide"),
+  quit: () => ipcRenderer.invoke("app:quit"),
   onShown: (cb: Listener<void>) => on("ui:shown", cb),
   onToggleDictation: (cb: Listener<void>) => on("ui:toggle-dictation", cb),
   onOpenSettings: (cb: Listener<void>) => on("ui:open-settings", cb),

@@ -160,6 +160,13 @@ await ev("document.getElementById('settings-btn').click(); 0");
 await sleep(500);
 check("panneau réglages", await ev("!document.getElementById('settings').hidden"));
 await shot("5-settings");
+check("bouton Quitter dans les réglages", await ev("[...document.querySelectorAll('#settings button')].some(b => b.textContent.includes('Quitter'))"));
+check("bouton Quitter dans la barre de saisie", await ev("Boolean(document.getElementById('quit-btn'))"));
+let exited = false;
+app.on("exit", () => (exited = true));
+await ev("document.getElementById('quit-btn').click(); 0");
+for (let i = 0; i < 20 && !exited; i++) await sleep(250);
+check("cliquer sur Quitter ferme l'application", exited);
 
 const failed = results.filter(([, ok]) => !ok);
 console.log(failed.length ? "ÉCHECS: " + failed.length : "TOUT OK");

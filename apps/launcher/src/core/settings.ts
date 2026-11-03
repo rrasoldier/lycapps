@@ -14,6 +14,10 @@ export interface Settings {
   projectsRoot: string;
   launchAtLogin: boolean;
   autoUpdate: boolean;
+  /** Affiche aussi l'app dans le Dock (secours si l'icône de la barre de menus reste invisible). */
+  showInDock: boolean;
+  /** Affiche le nom « Lanceur » à côté de l'icône de la barre de menus (plus facile à repérer). */
+  trayLabel: boolean;
   /** Lire les réponses à voix haute (voix du système) même en mode texte. */
   speakReplies: boolean;
   ttsVoice: string;
@@ -43,6 +47,8 @@ export function defaultSettings(home = os.homedir()): Settings {
     projectsRoot: path.join(home, "Projects"),
     launchAtLogin: false,
     autoUpdate: true,
+    showInDock: false,
+    trayLabel: true,
     speakReplies: false,
     ttsVoice: "",
     ttsRate: 185,
