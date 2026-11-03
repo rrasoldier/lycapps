@@ -74,15 +74,23 @@ const text = (sel) => ev(`[...document.querySelectorAll(${JSON.stringify(sel)})]
 const click = (sel, label) => ev(`[...document.querySelectorAll(${JSON.stringify(sel)})].find(b => ${JSON.stringify(label)} === '' || b.textContent.includes(${JSON.stringify(label)})).click()`);
 
 check("titre de fenêtre AlphaCris", await ev("document.title") === "AlphaCris" && (await ev("document.querySelector('.brand').textContent")).includes("AlphaCris"));
-check("mode compact au départ", await ev("document.getElementById('card').classList.contains('compact')"));
-await shot("0-compact");
+const layout = await ev(`(() => { const r = (id) => document.getElementById(id).getBoundingClientRect(); const o = r('orb'), s = r('side'), st = r('stage'); return { orb: [o.width, o.height], side: s.width, sideLeft: s.left, stageLeft: st.left, stageRight: st.right, cardEmpty: document.getElementById('card').classList.contains('empty') }; })()`);
+check("écran principal : la scène vocale occupe le centre", layout.orb[0] > 500 && layout.orb[1] > 400 && layout.cardEmpty, JSON.stringify(layout));
+check("le fil de texte est un panneau étroit sur le côté", layout.side <= 360 && layout.sideLeft >= layout.stageRight - 1, JSON.stringify(layout));
+await sleep(700);
+const lit = await ev(`(() => { const c = document.getElementById('orb'); const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 40) n++; return n; })()`);
+check("l'orbe est dessiné", lit > 5000, String(lit));
+check("bouton Recharger présent", await ev("Boolean(document.getElementById('reload-btn'))"));
+check("pas de bonjour en test (e2e)", (await ev("window.launcher.greeting()")) === null);
+await shot("0-stage");
 
 // 1. prompt agent -> list_files
 await type("liste mes fichiers");
 await sleep(1300);
 const prog = await ev("document.getElementById('progress').hidden ? '' : document.getElementById('progress-text').innerText");
 check("jauge de progression visible (temps + étape)", /\d:\d\d/.test(prog) && prog.includes("1 action"), JSON.stringify(prog));
-check("mode conversation actif", await ev("!document.getElementById('card').classList.contains('compact')"));
+check("l'orbe réfléchit pendant que l'agent travaille", await ev("document.getElementById('card').dataset.stage") === "thinking");
+check("le panneau texte affiche la conversation", await ev("!document.getElementById('card').classList.contains('empty')"));
 await sleep(1500);
 let out = await text("#messages");
 check("agent: message utilisateur, étape et réponse", out.includes("liste mes fichiers") && out.includes("Liste le dossier") && out.includes("Terminé"), JSON.stringify(out.slice(0, 160)));
@@ -156,13 +164,13 @@ check("annulation du rangement", fs.existsSync(path.join(allowed, "a.png")) && !
 // 6. nouvelle conversation + réglages
 await click("#new-btn", "");
 await sleep(500);
-check("nouvelle conversation : retour au mode compact", await ev("document.getElementById('card').classList.contains('compact') && document.getElementById('messages').childElementCount === 0"));
+check("nouvelle conversation : panneau texte vidé", await ev("document.getElementById('card').classList.contains('empty') && document.getElementById('messages').childElementCount === 0"));
 await ev("document.getElementById('settings-btn').click(); 0");
 await sleep(500);
 check("panneau réglages", await ev("!document.getElementById('settings').hidden"));
 await shot("5-settings");
 check("bouton Quitter dans les réglages", await ev("[...document.querySelectorAll('#settings button')].some(b => b.textContent.includes('Quitter'))"));
-check("bouton Quitter dans la barre de saisie", await ev("Boolean(document.getElementById('quit-btn'))"));
+check("bouton Quitter dans l'en-tête", await ev("Boolean(document.getElementById('quit-btn'))"));
 let exited = false;
 app.on("exit", () => (exited = true));
 await ev("document.getElementById('quit-btn').click(); 0");

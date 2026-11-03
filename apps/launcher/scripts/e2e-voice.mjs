@@ -71,7 +71,7 @@ const check = (name, ok, extra = "") => {
   console.log(ok ? "PASS" : "FAIL", name, extra);
 };
 
-async function scenario(name, { settings, audio, queue, port: debugPort, run, real = false }) {
+async function scenario(name, { settings, audio, queue, port: debugPort, run, real = false, env = {}, sayDelay = 0.3 }) {
   console.log(`\n== ${name}`);
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "launcher-e2e-voice-"));
   const allowed = path.join(work, "files");
@@ -98,7 +98,7 @@ async function scenario(name, { settings, audio, queue, port: debugPort, run, re
 
   const sayLog = path.join(work, "say.log");
   const sayBin = path.join(work, "say");
-  fs.writeFileSync(sayBin, `#!/bin/sh\nif [ "$1" = "-v" ] && [ "$2" = "?" ]; then exit 0; fi\nprintf '%s %s\\n' "$(date +%s.%N | cut -c7-14)" "$*" >> "${sayLog}"\nsleep 0.3\n`, { mode: 0o755 });
+  fs.writeFileSync(sayBin, `#!/bin/sh\nif [ "$1" = "-v" ] && [ "$2" = "?" ]; then exit 0; fi\nprintf '%s %s\\n' "$(date +%s.%N | cut -c7-14)" "$*" >> "${sayLog}"\nsleep ${sayDelay}\n`, { mode: 0o755 });
   const queueFile = path.join(work, "whisper-queue.txt");
   fs.writeFileSync(queueFile, queue.join("\n") + "\n");
   const whisperBin = path.join(work, "whisper-cli");
@@ -116,7 +116,7 @@ async function scenario(name, { settings, audio, queue, port: debugPort, run, re
   const app = spawn(
     "xvfb-run",
     ["-a", "node_modules/electron/dist/electron", ".", "--no-sandbox", `--user-data-dir=${userData}`, `--remote-debugging-port=${debugPort}`, "--e2e", "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", `--use-file-for-fake-audio-capture=${wav}%noloop`, ...(settings.wakeWordEnabled ? [] : ["--show"])],
-    { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, LAUNCHER_SAY: sayBin } },
+    { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, LAUNCHER_SAY: sayBin, ...env } },
   );
   app.stderr.on("data", (d) => {
     const s = String(d);
@@ -212,7 +212,28 @@ await scenario("mot d'activation (écoute locale)", {
   },
 });
 
-// 3. Optionnel : vrai whisper.cpp (WHISPER_BIN=… WHISPER_MODEL=… node scripts/e2e-voice.mjs).
+// 3. Bonjour au lancement : dit tout de suite, nom prononcé « Criss », affiché « Cris », une seule fois par lancement.
+await scenario("bonjour au lancement", {
+  port: 9347,
+  settings: {},
+  audio: [3],
+  queue: [],
+  env: { LAUNCHER_GREET_E2E: "1" },
+  sayDelay: 2.5,
+  async run({ ev, waitFor, said, shot, check, sleep }) {
+    check("le bonjour est dit avec « Criss »", await waitFor("bonjour", async () => said().includes("Bonjour, c'est Criss, à ton service."), 8000), said().trim());
+    check("la voix ne dit jamais « Cris » (prononciation française)", !/c'est Cris[ ,.]/.test(said()));
+    check("le nom affiché reste « Cris »", (await ev("document.getElementById('stage-caption').textContent")).includes("c'est Cris,"));
+    check("l'orbe passe en mode parole", await ev("document.getElementById('card').dataset.stage") === "speaking" || (await waitFor("speaking", () => ev("document.getElementById('card').dataset.stage === 'speaking'"), 1000)));
+    await shot("voice-5-greeting");
+    await waitFor("fin du bonjour", () => ev("document.getElementById('card').dataset.stage === 'idle'"), 8000);
+    await ev("location.reload()");
+    await sleep(2500);
+    check("pas de second bonjour au rechargement de l'interface", said().split("Bonjour, c'est Criss").length === 2);
+  },
+});
+
+// 4. Optionnel : vrai whisper.cpp (WHISPER_BIN=… WHISPER_MODEL=… node scripts/e2e-voice.mjs).
 if (process.env.WHISPER_BIN && process.env.WHISPER_MODEL) {
   await scenario("vrai Whisper local (espeak -> whisper.cpp)", {
     real: true,

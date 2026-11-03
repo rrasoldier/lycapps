@@ -35,12 +35,29 @@ Pour un MVP à itérer vite, Electron est le choix le plus pragmatique ; le cœu
 cd apps/launcher
 npm install
 npm run build
-npm start            # build + lance l'app (pas de Dock par défaut : icône « Lanceur » dans la barre de menus ; sinon voir le dépannage ci-dessous)
+npm start            # build + lance l'app (pas de Dock par défaut : icône « AlphaCris » dans la barre de menus ; sinon voir le dépannage ci-dessous)
+npm run dev          # développement : recompile en continu, l'interface se recharge à chaque modification (voir ci-dessous)
 ```
 
 Premier lancement : appuyez sur `Option+Espace`, ouvrez les réglages (⚙) et renseignez le fournisseur / modèle / clé.
 
-Options de ligne de commande : `--show` affiche la fenêtre au démarrage (pratique en développement).
+Options de ligne de commande : `--show` affiche la fenêtre au démarrage (pratique en développement) ; `--dev` surveille le renderer (voir `npm run dev`) ; `--reloaded` (ajouté par « Recharger ») évite de redire bonjour après un redémarrage.
+
+### Itérer vite : « Recharger » et mode développement
+
+**Sur le Mac, depuis `AlphaCris.app` (un clic, aucune commande)** : bouton **Recharger** (en haut de la fenêtre), menu de la barre de menus → **Recharger (dernière version, recompile et relance)**, ou `⇧⌘R`. L'app fait `git pull --ff-only` (dernier commit de la branche suivie), `npm install` seulement si `package.json` a changé, `npm run build` (**toujours**, même sans nouveau commit : les modifications faites sur place, par exemple dans Cursor sur ce Mac, sont donc prises en compte), puis se relance toute seule, fenêtre ouverte et sans redire bonjour. Un bandeau indique l'étape en cours ; en cas d'échec (conflit git, erreur de compilation) il affiche le message, l'ancienne version reste en place (retour arrière automatique en cas d'échec de compilation d'un nouveau commit). Le chemin `~/Applications/AlphaCris.app` ne change jamais : l'app charge le code du dépôt, qui est mis à jour sur place.
+- Première fois seulement : une version qui n'a pas encore le bouton se met à jour par l'ancien chemin (⚙ → Version → mettre à jour, ou `git pull origin cursor/mac-launcher-mvp-4e86 && cd apps/launcher && npm install && npm run build`), puis tout se fait avec **Recharger**.
+- `⌘R` (menu AlphaCris → « Recharger l'interface ») recharge seulement la page, sans recompiler.
+
+**Dans Cursor (mode développement, rechargement à chaud)** :
+
+```bash
+cd apps/launcher
+npm run dev                                   # quitter d'abord AlphaCris (⌘Q) : une seule instance à la fois
+npm run dev -- --user-data-dir=/tmp/alphacris-dev   # variante avec des réglages vierges, en parallèle de l'app installée
+```
+
+`npm run dev` compile une fois, puis lance `tsc --watch` (processus principal et interface) et Electron avec `--dev --show`. Modifier `src/renderer/*` (TypeScript, HTML, CSS) recharge la fenêtre en une fraction de seconde ; modifier `src/main`, `src/core` ou `src/preload` relance Electron automatiquement. `Ctrl+C` arrête tout. Les arguments après `--` sont transmis à Electron.
 
 ### Lancer sans Terminal, et mises à jour
 
@@ -108,7 +125,8 @@ Limites propres à Cursor :
 | Action | Comment |
 | --- | --- |
 | Afficher / masquer | `Option+Espace` (ou clic sur l'icône de barre de menus). `Échap` : annuler / fermer (la conversation est conservée quand la fenêtre est masquée). |
-| Instruction à l'agent | Taper puis `Entrée` (`Maj+Entrée` = saut de ligne, `↑`/`↓` = historique). La fenêtre s'agrandit en conversation ; `⌘N` ou « Nouvelle conversation » repart de zéro. Ex. « Crée une petite app web de to-do list dans mon dossier Projects », « Quels sont les 5 plus gros fichiers de Downloads ? » |
+| Écran principal | Au lancement : une **scène vocale** (orbe et ondes qui réagissent au niveau du micro quand vous parlez, à la voix de l'assistant quand il répond, et « réfléchissent » pendant qu'un agent travaille). Toucher l'orbe ou 🎙 lance la conversation vocale. Le fil de texte (bulles, champ de saisie) est un panneau plus petit sur la droite. |
+| Instruction à l'agent | Taper dans le panneau de droite puis `Entrée` (`Maj+Entrée` = saut de ligne, `↑`/`↓` = historique). `⌘N` ou « Nouvelle conversation » repart de zéro. Ex. « Crée une petite app web de to-do list dans mon dossier Projects », « Quels sont les 5 plus gros fichiers de Downloads ? » |
 | Ranger un dossier | Glisser le dossier sur la fenêtre (ou 📁), taper la consigne (« range par année puis par type ») puis `Entrée` pour l'aperçu. `⌘Entrée` = rangement par type **sans IA**. |
 | Répondre à l'agent | Quand l'agent a besoin d'une précision, une carte apparaît dans le fil : cliquer un bouton (ou touche `1`–`9` quand le champ est vide) ou écrire sa réponse dans la barre de prompt. `Échap` refuse de répondre et interrompt la demande. |
 | Suivre l'avancement | Pendant une demande : barre animée, temps écoulé, nombre d'actions et étape en cours (« Lit … », « Exécute : … », « ⏸ En attente de votre confirmation »). Le pourcentage réel n'est pas connaissable (nombre d'étapes inconnu) : la barre est donc indéterminée. `Échap` annule. |
@@ -147,6 +165,10 @@ npm run voice:install -- base    # variante plus légère/rapide (~150 Mo)
 ```
 
 Puis relancer l'app. Sans cette installation, la voix utilise une clé Whisper (API) si elle existe. Moteur réglable : réglages → Voix → « Moteur de dictée » (automatique : local si installé, sinon API).
+
+### Bonjour au lancement
+
+À chaque démarrage, AlphaCris dit « Bonjour, c'est Cris, à ton service. » (Piper si installé, sinon `say`) pendant que l'orbe s'anime. Le nom reste affiché « Cris » / « AlphaCris » ; pour la voix il est écrit « Criss » (`src/core/greeting.ts`, `pronounceForSpeech`) afin que le moteur dise /kʁis/ (comme « criss ») et non « cri » : la même règle s'applique à toute réponse lue (« Cris » et « AlphaCris » → « Criss », « Alpha Criss » ; le mot « cris » en minuscules n'est pas touché). Pas de bonjour après « Recharger », après une mise à jour automatique ni dans l'interface rechargée. À désactiver : ⚙ → Voix → « Dire bonjour au lancement ». Le modèle Piper est chargé dès le début du démarrage pour que le bonjour parte tout de suite.
 
 ### Une voix de qualité (Piper, gratuit, local)
 
@@ -236,14 +258,15 @@ Le renderer ne touche jamais au disque : tout passe par l'IPC vers le processus 
 ## Tests
 
 ```bash
-npm test             # 151 tests unitaires/intégration (Vitest)
+npm test             # 182 tests unitaires/intégration (Vitest)
 npm run typecheck
 npm run build
 npm run e2e:linux    # app Electron réelle sous Xvfb + faux serveur LLM (nécessite xvfb-run)
-npm run e2e:voice    # conversation vocale réelle : micro simulé (espeak-ng), faux Whisper/say (xvfb-run + espeak-ng)
+npm run e2e:voice    # conversation vocale réelle : micro simulé (espeak-ng), faux Whisper/say, bonjour au lancement (xvfb-run + espeak-ng)
+npm run e2e:reload   # bouton Recharger : dépôt git temporaire, nouveau commit, pull + build + relance (Xvfb + git)
 ```
 
-Couverture : périmètre (traversée, liens symboliques, préfixes voisins), classification shell, chaque outil (confirmation, refus, non-écrasement, timeout shell), boucle agent (erreurs d'outils, limite d'étapes, annulation), client LLM, mode dossier (dry-run, sélection partielle, collisions, re-vérification, annulation, autorisation hors périmètre), stockage des réglages/historique, transcription, résolution des clés, mémoire de conversation, outil `ask_user`, analyseur Markdown, mise à jour git (nouveautés, `npm install` conditionnel, échec de compilation avec retour arrière, modifications locales, dépôt injoignable, sur de vrais dépôts temporaires). Voix : détection de parole (bruit, claquements, clics), WAV, texte→oral, oui/non strict, choix oral, mot d'activation, filtre Whisper, whisper.cpp local (fausses commandes + un test avec le vrai binaire si `WHISPER_BIN`/`WHISPER_MODEL`/`WHISPER_SAMPLE` sont définis), `say`. `e2e:voice` joue de vraies phrases dans la vraie app (conversation, confirmation « oui », « merci c'est tout », mot d'activation, et vrai whisper.cpp si `WHISPER_BIN`/`WHISPER_MODEL`). Le test e2e Linux couvre aussi le fil de conversation, les boutons de réponse, le rendu Markdown et « Nouvelle conversation ».
+Couverture : périmètre (traversée, liens symboliques, préfixes voisins), classification shell, chaque outil (confirmation, refus, non-écrasement, timeout shell), boucle agent (erreurs d'outils, limite d'étapes, annulation), client LLM, mode dossier (dry-run, sélection partielle, collisions, re-vérification, annulation, autorisation hors périmètre), stockage des réglages/historique, transcription, résolution des clés, mémoire de conversation, outil `ask_user`, analyseur Markdown, mise à jour git (nouveautés, `npm install` conditionnel, échec de compilation avec retour arrière, modifications locales, dépôt injoignable, sur de vrais dépôts temporaires). Voix : détection de parole (bruit, claquements, clics), WAV, texte→oral, oui/non strict, choix oral, mot d'activation, filtre Whisper, whisper.cpp local (fausses commandes + un test avec le vrai binaire si `WHISPER_BIN`/`WHISPER_MODEL`/`WHISPER_SAMPLE` sont définis), `say`. `e2e:reload` publie un commit dans un dépôt temporaire, clique sur « Recharger » dans la vraie app et vérifie la nouvelle version après relance. `e2e:voice` joue de vraies phrases dans la vraie app (conversation, confirmation « oui », « merci c'est tout », mot d'activation, et vrai whisper.cpp si `WHISPER_BIN`/`WHISPER_MODEL`). Le test e2e Linux couvre aussi le fil de conversation, les boutons de réponse, le rendu Markdown et « Nouvelle conversation ».
 
 ## À vérifier sur Mac
 
@@ -253,6 +276,8 @@ Non testable depuis la VM Linux :
 - [ ] Pas d'icône Dock (`setActivationPolicy('accessory')` + `LSUIElement` dans le `.dmg`), icône « template » correcte en mode clair/sombre, menu de la barre de menus.
 - [ ] **Barre de menus** : icône template (32 px @2x, `createFromBuffer`) + titre « AlphaCris » visibles ; si masqués, Dock + fenêtre immédiats (`tray.getBounds()` vide/hors écran : heuristique non vérifiée sur Mac) ; `⌘Q`, bouton ⏻, bouton dans ⚙ et « Afficher dans le Dock » quittent bien l'app.
 - [ ] Prise de focus de la fenêtre depuis une autre app, masquage à la perte de focus, restitution du focus à l'app précédente (`app.hide()`).
+- [ ] **Recharger** : bouton / `⇧⌘R` depuis `AlphaCris.app` lancée par le Finder (`git`/`npm` retrouvés via le shell de connexion, `app.relaunch` avec la copie d'Electron renommée, fenêtre qui revient), et `npm run dev` dans Cursor.
+- [ ] **Scène vocale** : fluidité de l'orbe (canvas 2D) sur l'écran Retina, réaction au vrai micro, bonjour dit par Piper dès l'ouverture (prononciation « criss »).
 - [ ] Lancement au login (`setLoginItemSettings`, visible dans Réglages Système → Général → Éléments de connexion).
 - [ ] **Fournisseur Cursor** avec une vraie clé : un prompt avec appel d'outil (ex. « liste mon dossier Downloads »), confirmation affichée pour un shell, annulation (Échap), « Lister les modèles » et sélection d'un modèle Claude, mode dossier. Vérifier aussi que le modèle appelle bien nos outils `custom-user-tools` (et qu'aucun outil intégré Cursor n'est proposé), le chargement du SDK dans l'app packagée (`asarUnpack`, binaire darwin) et l'usage « SDK » dans le tableau de bord Cursor.
 - [ ] **Voix** (rien de cela n'a pu être essayé sur un vrai Mac) :

@@ -18,6 +18,8 @@ export interface Settings {
   showInDock: boolean;
   /** Affiche le nom « AlphaCris » à côté de l'icône de la barre de menus (plus facile à repérer). */
   trayLabel: boolean;
+  /** Dire bonjour à voix haute à chaque lancement (« Bonjour, c'est Cris, à ton service. »). */
+  greetOnLaunch: boolean;
   /** Lire les réponses à voix haute (voix du système) même en mode texte. */
   speakReplies: boolean;
   ttsVoice: string;
@@ -55,6 +57,7 @@ export function defaultSettings(home = os.homedir()): Settings {
     autoUpdate: true,
     showInDock: false,
     trayLabel: true,
+    greetOnLaunch: true,
     speakReplies: false,
     ttsVoice: "",
     ttsRate: 185,

@@ -62,6 +62,27 @@ describe("mise à jour depuis le dépôt git", () => {
     expect((await updater.check()).state).toBe("up-to-date");
   });
 
+  it("Recharger (force) : recompile sans nouveau commit, y compris les modifications locales", async () => {
+    const { updater, appDir } = setup();
+    expect((await updater.apply()).changed).toBe(false);
+    expect(fs.existsSync(path.join(appDir, "built.txt"))).toBe(false);
+    fs.writeFileSync(path.join(appDir, "src.txt"), "édité dans Cursor");
+    const steps: string[] = [];
+    const res = await updater.apply((t) => steps.push(t), { force: true });
+    expect(res).toMatchObject({ changed: true, installedDependencies: false });
+    expect(res.from).toBe(res.to);
+    expect(fs.readFileSync(path.join(appDir, "built.txt"), "utf8")).toBe("édité dans Cursor");
+    expect(steps.join("|")).toContain("Compilation");
+  });
+
+  it("Recharger (force) récupère aussi le dernier commit", async () => {
+    const { updater, publish, appDir } = setup();
+    publish("v2");
+    const res = await updater.apply(undefined, { force: true });
+    expect(res.from).not.toBe(res.to);
+    expect(fs.readFileSync(path.join(appDir, "built.txt"), "utf8")).toBe("v2");
+  });
+
   it("relance npm install quand package.json change", async () => {
     const { updater, publish, appDir } = setup();
     publish("v2", (dir) => {

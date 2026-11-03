@@ -14,6 +14,7 @@ import {
   Tray,
 } from "electron";
 import { execFile } from "node:child_process";
+import * as fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 import { getProvider, PROVIDERS } from "../core/llm";
@@ -26,17 +27,19 @@ import { cleanTranscript, interpretConfirmation, isEndPhrase, matchChoice, match
 import { importLoginEnv } from "./loginEnv";
 import { KeychainSecrets } from "./secrets";
 import { createTrayIcon } from "./trayIcon";
+import { GREETING_TEXT, pronounceForSpeech } from "../core/greeting";
 import { PiperTts } from "./piper";
 import { createSpeaker, listVoices, resolveVoice } from "./speech";
 
-const WIDTH = 780;
-const MIN_HEIGHT = 84;
-const MAX_HEIGHT = 760;
+const WIDTH = 1060;
+const HEIGHT = 680;
 
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let quitting = false;
 let dialogOpen = false;
+let greeted = false;
+const RELOADED_FLAG = "--reloaded";
 const tts = new PiperTts(() => settingsStore.get());
 const speaker = createSpeaker(tts.start);
 const pendingConfirms = new Map<string, (ok: boolean) => void>();
@@ -113,7 +116,7 @@ function resolvePending(): void {
 function createWindow(): BrowserWindow {
   const w = new BrowserWindow({
     width: WIDTH,
-    height: MIN_HEIGHT,
+    height: HEIGHT,
     show: false,
     frame: false,
     transparent: true,
@@ -136,6 +139,9 @@ function createWindow(): BrowserWindow {
   w.setAlwaysOnTop(true, "screen-saver");
   w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   w.loadFile(path.join(__dirname, "../renderer/index.html"), process.argv.includes("--e2e") ? { hash: "e2e" } : undefined);
+  w.webContents.on("did-finish-load", () => {
+    w.webContents.send(w.isVisible() ? "ui:shown" : "ui:hidden");
+  });
   w.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   w.webContents.on("will-navigate", (e) => e.preventDefault());
   w.on("blur", () => {
@@ -154,8 +160,8 @@ function positionWindow(): void {
   if (!win) return;
   const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   const { x, y, width, height } = display.workArea;
-  const [w] = win.getSize();
-  win.setPosition(Math.round(x + (width - w) / 2), Math.round(y + height * 0.12));
+  const [w, h] = win.getSize();
+  win.setPosition(Math.round(x + (width - w) / 2), Math.round(y + Math.max(8, (height - h) / 2.4)));
   keepOnScreen();
 }
 
@@ -196,7 +202,7 @@ function toggleDictation(): void {
 
 async function speak(text: string): Promise<{ ok: boolean; error?: string }> {
   const s = settingsStore.get();
-  const spoken = plainForSpeech(text);
+  const spoken = pronounceForSpeech(plainForSpeech(text));
   if (!spoken) return { ok: true };
   try {
     await speaker.speak(spoken, { voice: await resolveVoice(s.ttsVoice), rate: s.ttsRate });
@@ -276,6 +282,8 @@ function installAppMenu(): void {
       label: APP_LABEL,
       submenu: [
         { label: "Réglages…", accelerator: "CommandOrControl+,", click: () => { showWindow(); win?.webContents.send("ui:open-settings"); } },
+        { label: "Recharger depuis le dépôt", accelerator: "CommandOrControl+Shift+R", click: () => void reloadApp() },
+        { label: "Recharger l'interface", accelerator: "CommandOrControl+R", click: () => win?.webContents.reloadIgnoringCache() },
         { type: "separator" },
         { label: "Masquer le lanceur", accelerator: "CommandOrControl+W", click: hideWindow },
         { label: `Quitter ${APP_LABEL}`, accelerator: "CommandOrControl+Q", click: quitApp },
@@ -463,13 +471,13 @@ function registerIpc(): void {
   ipcMain.handle("link:open", async (_e, url: string) => {
     if (typeof url === "string" && isSafeUrl(url)) await shell.openExternal(url);
   });
-  ipcMain.handle("ui:resize", (_e, height: number) => {
-    if (!win || typeof height !== "number") return;
-    const h = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, Math.round(height)));
-    win.setSize(WIDTH, h);
-    keepOnScreen();
-  });
   ipcMain.handle("app:quit", () => quitApp());
+  ipcMain.handle("app:reload", () => reloadApp());
+  ipcMain.handle("voice:greeting", () => {
+    if (greeted || !settingsStore.get().greetOnLaunch || (E2E && !process.env.LAUNCHER_GREET_E2E) || process.argv.includes(RELOADED_FLAG)) return null;
+    greeted = true;
+    return { text: GREETING_TEXT };
+  });
   ipcMain.handle("ui:hide", () => {
     resolvePending();
     hideWindow();
@@ -511,10 +519,7 @@ async function applyUpdate(): Promise<UpdateStatus> {
     const result = await updater.apply((text) => setUpdateBusy(text));
     if (!result.changed) return (updateStatus = await updater.check());
     notify("Mise à jour installée : redémarrage de l'application.");
-    resolvePending();
-    quitting = true;
-    app.relaunch();
-    app.exit(0);
+    relaunchApp();
   } catch (err) {
     dialog.showErrorBox("Mise à jour impossible", errorMessage(err));
     updateStatus = await updater.check().catch(() => updateStatus);
@@ -522,6 +527,48 @@ async function applyUpdate(): Promise<UpdateStatus> {
     setUpdateBusy(null);
   }
   return updateStatus ?? { state: "unavailable", reason: "Mise à jour non effectuée." };
+}
+
+/** Redémarre l'application (fenêtre ouverte, sans redire bonjour). */
+function relaunchApp(): void {
+  resolvePending();
+  speaker.stop();
+  quitting = true;
+  const args = process.argv.slice(1).filter((a) => a !== RELOADED_FLAG && a !== "--show");
+  app.relaunch({ args: [...args, RELOADED_FLAG, "--show"] });
+  app.exit(0);
+}
+
+function sendReload(text: string, error = false): void {
+  win?.webContents.send("ui:reload", { text, error });
+}
+
+/**
+ * « Recharger » : récupère le dernier commit (git pull), recompile et relance l'application, sans commande à taper.
+ * Prend aussi en compte des modifications faites sur place (par exemple depuis Cursor sur ce Mac).
+ */
+async function reloadApp(): Promise<{ ok: boolean; error?: string }> {
+  if (updateBusy) return { ok: false, error: `Une opération est déjà en cours : ${updateBusy}` };
+  const step = (text: string) => {
+    setUpdateBusy(text);
+    sendReload(text);
+  };
+  step("Rechargement…");
+  showWindow();
+  try {
+    const result = await updater.apply(step, { force: true });
+    sendReload(result.from === result.to ? "Recompilé : redémarrage…" : "Nouvelle version installée : redémarrage…");
+    setUpdateBusy(null);
+    relaunchApp();
+    return { ok: true };
+  } catch (err) {
+    const message = errorMessage(err);
+    sendReload(message, true);
+    notify(`Rechargement impossible : ${message.split("\n")[0]}`);
+    return { ok: false, error: message };
+  } finally {
+    setUpdateBusy(null);
+  }
 }
 
 async function updateAction(): Promise<UpdateStatus> {
@@ -559,6 +606,7 @@ function refreshTrayMenu(): void {
         },
       },
       { type: "separator" },
+      { label: "Recharger (dernière version, recompile et relance)", accelerator: "CommandOrControl+Shift+R", enabled: !updateBusy, click: () => void reloadApp() },
       { label: updateLabel(), enabled: !updateBusy, click: () => void updateAction() },
       {
         label: "Mettre à jour automatiquement au démarrage",
@@ -613,6 +661,19 @@ function ensureReachable(): void {
   for (const ms of [500, 1500, 4000]) setTimeout(check, ms);
 }
 
+/** Mode développement (`npm run dev`) : l'interface se recharge dès que le renderer est recompilé. */
+function watchRenderer(): void {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    fs.watch(path.join(__dirname, "../renderer"), { recursive: true }, () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => win?.webContents.reloadIgnoringCache(), 150);
+    });
+  } catch (err) {
+    console.error("watch renderer :", err);
+  }
+}
+
 function openedAtLogin(): boolean {
   try {
     return process.platform === "darwin" && app.getLoginItemSettings().wasOpenedAtLogin;
@@ -644,8 +705,10 @@ if (!app.requestSingleInstanceLock()) {
     session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === "media"));
     session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === "media");
 
+    if (settingsStore.get().greetOnLaunch && !E2E) tts.warmUp();
     registerIpc();
     win = createWindow();
+    if (process.argv.includes("--dev")) watchRenderer();
     createTray();
     ensureReachable();
     const s = settingsStore.get();

@@ -88,7 +88,11 @@ export class Updater {
     return { state: "available", behind, version, subjects: log.stdout.split("\n").map((l) => l.trim()).filter(Boolean) };
   }
 
-  async apply(onStep: (text: string) => void = () => {}): Promise<UpdateResult> {
+  /**
+   * `force` (bouton « Recharger ») : recompile même si aucun nouveau commit n'est arrivé, pour prendre aussi en compte
+   * des modifications faites sur place (édition dans Cursor sur ce Mac), puis demande un redémarrage.
+   */
+  async apply(onStep: (text: string) => void = () => {}, opts: { force?: boolean } = {}): Promise<UpdateResult> {
     if (!(await this.repoRoot())) throw new Error("Mise à jour impossible : l'application n'est pas lancée depuis un dépôt git.");
     const from = (await this.git(["rev-parse", "HEAD"])).stdout.trim();
 
@@ -98,10 +102,10 @@ export class Updater {
       throw new Error(`git pull a échoué (modifications locales ou historique divergent ?) :\n${short(pull.stderr || pull.stdout)}`);
     }
     const to = (await this.git(["rev-parse", "HEAD"])).stdout.trim();
-    if (from === to) return { changed: false, from, to, installedDependencies: false };
+    if (from === to && !opts.force) return { changed: false, from, to, installedDependencies: false };
 
     try {
-      const changedFiles = (await this.git(["diff", "--name-only", from, to, "--", "package.json", "package-lock.json"])).stdout.split("\n").map((l) => path.basename(l.trim()));
+      const changedFiles = from === to ? [] : (await this.git(["diff", "--name-only", from, to, "--", "package.json", "package-lock.json"])).stdout.split("\n").map((l) => path.basename(l.trim()));
       const needsInstall = changedFiles.some((f) => f === "package.json" || f === "package-lock.json");
       if (needsInstall) {
         onStep("Installation des dépendances (npm install)…");

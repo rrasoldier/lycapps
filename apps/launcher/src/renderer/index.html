@@ -10,45 +10,63 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <main id="card" class="compact">
+    <main id="card" class="empty">
       <header id="head">
         <div class="brand"><span class="orb"></span><span>AlphaCris</span></div>
         <div class="head-actions">
+          <button id="reload-btn" class="ghost" title="Recharger : récupère la dernière version, recompile et relance (⇧⌘R)">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>
+            Recharger
+          </button>
           <button id="new-btn" class="ghost" title="Nouvelle conversation (⌘N)">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
             Nouvelle conversation
           </button>
+          <button id="settings-btn" class="icon" title="Réglages (⌘,)" aria-label="Réglages">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+          </button>
+          <button id="quit-btn" class="icon" title="Quitter AlphaCris (⌘Q)" aria-label="Quitter">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 3v8M6.4 6.6a8 8 0 1 0 11.2 0"/></svg>
+          </button>
         </div>
       </header>
 
-      <div id="messages" role="log" aria-live="polite"></div>
-      <section id="settings" hidden></section>
+      <div id="body">
+        <section id="stage" aria-label="Assistant vocal">
+          <canvas id="orb" title="Touchez l'orbe pour parler"></canvas>
+          <div id="stage-text">
+            <div id="stage-status">Touchez l'orbe pour parler</div>
+            <div id="stage-caption"></div>
+          </div>
+          <button id="mic-btn" class="icon" title="Parler à l'assistant (clic = conversation vocale, Maj+clic = dictée simple)" aria-label="Conversation vocale">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+          </button>
+        </section>
 
-      <div id="hint" hidden></div>
-      <div id="progress" hidden>
-        <div id="bar-track"><div id="bar-fill"></div></div>
-        <div id="progress-text"></div>
+        <aside id="side" aria-label="Conversation écrite">
+          <div id="messages" role="log" aria-live="polite"></div>
+          <div id="side-empty">Vous pouvez aussi écrire ici.</div>
+          <div id="hint" hidden></div>
+          <div id="progress" hidden>
+            <div id="bar-track"><div id="bar-fill"></div></div>
+            <div id="progress-text"></div>
+          </div>
+
+          <footer id="composer">
+            <button id="folder-btn" class="icon" title="Choisir un dossier à organiser (ou glissez-le ici)" aria-label="Choisir un dossier">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>
+            </button>
+            <div id="folder-chip" hidden><span id="folder-name"></span><button id="folder-clear" aria-label="Retirer le dossier">×</button></div>
+            <textarea id="prompt" rows="1" autocomplete="off" spellcheck="false" placeholder="Écrire à AlphaCris…"></textarea>
+            <button id="send-btn" class="send" title="Envoyer (Entrée)" aria-label="Envoyer">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+            </button>
+          </footer>
+        </aside>
       </div>
 
-      <footer id="composer">
-        <button id="folder-btn" class="icon" title="Choisir un dossier à organiser (ou glissez-le ici)" aria-label="Choisir un dossier">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>
-        </button>
-        <div id="folder-chip" hidden><span id="folder-name"></span><button id="folder-clear" aria-label="Retirer le dossier">×</button></div>
-        <textarea id="prompt" rows="1" autocomplete="off" spellcheck="false" placeholder="Que puis-je faire pour vous ?"></textarea>
-        <button id="mic-btn" class="icon" title="Parler à l'assistant (clic = conversation vocale, Maj+clic = dictée simple)" aria-label="Conversation vocale">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
-        </button>
-        <button id="settings-btn" class="icon" title="Réglages" aria-label="Réglages">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
-        </button>
-        <button id="quit-btn" class="icon" title="Quitter AlphaCris (⌘Q)" aria-label="Quitter">
-          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 3v8M6.4 6.6a8 8 0 1 0 11.2 0"/></svg>
-        </button>
-        <button id="send-btn" class="send" title="Envoyer (Entrée)" aria-label="Envoyer">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-        </button>
-      </footer>
+      <section id="settings" hidden></section>
+      <div id="reload-banner" hidden></div>
     </main>
     <script type="module" src="renderer.js"></script>
   </body>

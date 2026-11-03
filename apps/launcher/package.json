@@ -11,10 +11,12 @@
     "test": "vitest run",
     "e2e:linux": "node scripts/e2e-smoke.mjs",
     "start": "npm run build && electron .",
+    "dev": "node scripts/dev.mjs",
     "app:install": "bash scripts/install-mac-app.sh",
     "voice:install": "bash scripts/install-voice.sh",
     "tts:install": "bash scripts/install-tts.sh",
     "e2e:voice": "node scripts/e2e-voice.mjs",
+    "e2e:reload": "node scripts/e2e-reload.mjs",
     "dist": "npm run build && electron-builder --mac dmg"
   },
   "devDependencies": {

@@ -1,4 +1,5 @@
 import { parseMarkdown, type Block, type Inline } from "./markdown.js";
+import { Stage, type StageMode } from "./stage.js";
 import { Mic, type Listening } from "./voice.js";
 
 const api = window.launcher;
@@ -21,8 +22,10 @@ const sendBtn = $<HTMLButtonElement>("send-btn");
 const progressEl = $("progress");
 const progressText = $("progress-text");
 
-const CHAT_HEIGHT = 680;
-const DEFAULT_PLACEHOLDER = "Que puis-je faire pour vous ?";
+const DEFAULT_PLACEHOLDER = "Écrire à AlphaCris…";
+const stage = new Stage($<HTMLCanvasElement>("orb"));
+const stageStatus = $("stage-status");
+const stageCaption = $("stage-caption");
 const FOLDER_HINT = "Mode dossier : aperçu uniquement, rien n'est modifié avant votre confirmation.";
 
 interface PendingAsk {
@@ -58,18 +61,29 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
   return e;
 }
 
-/* Taille de la fenêtre et mode (compact = barre seule, chat = conversation) */
-function updateMode(): void {
-  const compact = messagesEl.childElementCount === 0 && settingsEl.hidden;
-  card.classList.toggle("compact", compact);
+/* Le panneau écrit est vide tant qu'il n'y a pas de message ; la scène vocale occupe l'écran principal. */
+function fit(): void {
+  card.classList.toggle("empty", messagesEl.childElementCount === 0);
 }
 
-function fit(): void {
-  updateMode();
-  requestAnimationFrame(() => {
-    const compact = card.classList.contains("compact");
-    void api.resize(compact ? card.scrollHeight + 14 : CHAT_HEIGHT);
-  });
+const STAGE_TEXT: Record<StageMode, string> = {
+  idle: "Touchez l'orbe pour parler",
+  listening: "Je vous écoute…",
+  thinking: "Je réfléchis…",
+  speaking: "Je vous réponds…",
+  wake: "À l'écoute de votre mot d'activation",
+};
+let stageMode: StageMode = "idle";
+
+/** Met la scène vocale au diapason : orbe, texte d'état. Hors conversation vocale, elle « réfléchit » pendant qu'un agent travaille. */
+function syncStage(): void {
+  const dv = micBtn.dataset.voice;
+  const mode: StageMode = dv === "listening" || dv === "thinking" || dv === "speaking" || dv === "wake" ? dv : busy ? "thinking" : "idle";
+  stageMode = mode;
+  stage.setMode(mode);
+  card.dataset.stage = mode;
+  stageStatus.textContent = STAGE_TEXT[mode];
+  if (mode !== "speaking" && mode !== "thinking") stageCaption.textContent = "";
 }
 
 function setHint(text: string | null): void {
@@ -359,6 +373,7 @@ function updateSendButton(): void {
 function setBusy(b: boolean): void {
   busy = b;
   card.classList.toggle("busy", b);
+  syncStage();
   promptEl.disabled = b && !pendingAsk?.view.allowText;
   updateSendButton();
   if (!b) promptEl.focus();
@@ -653,6 +668,31 @@ async function newConversation(): Promise<void> {
 $("new-btn").onclick = () => void newConversation();
 $("quit-btn").onclick = () => void api.quit();
 
+/* Recharger : dernière version du dépôt, recompilation, relance (sans commande à taper) */
+const reloadBanner = $("reload-banner");
+const reloadBtn = $<HTMLButtonElement>("reload-btn");
+function startReload(): void {
+  if (reloadBtn.disabled) return;
+  reloadBtn.disabled = true;
+  reloadBanner.className = "";
+  reloadBanner.hidden = false;
+  reloadBanner.textContent = "⏳ Rechargement…";
+  void api.reload().then((r) => {
+    if (r.ok) return;
+    reloadBtn.disabled = false;
+  });
+}
+reloadBtn.onclick = startReload;
+api.onReload(({ text, error }) => {
+  reloadBanner.hidden = false;
+  reloadBanner.className = error ? "error" : "";
+  reloadBanner.textContent = error ? `Rechargement impossible (cliquer pour fermer) :\n${text}` : `⏳ ${text}`;
+  reloadBtn.disabled = !error;
+});
+reloadBanner.onclick = () => {
+  if (reloadBanner.classList.contains("error")) reloadBanner.hidden = true;
+};
+
 $("folder-btn").onclick = async () => {
   const p = await api.pickFolder();
   if (p) setFolder(p);
@@ -694,14 +734,18 @@ const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms))
 
 function setVoice(mode: VoiceMode, hint: string | null = null): void {
   micBtn.dataset.voice = mode === "off" ? "" : mode;
+  stage.setLevel(0);
   micBtn.classList.toggle("active", mode === "listening" || mode === "thinking" || mode === "speaking");
   micBtn.style.setProperty("--level", "0");
   voiceHint = hint;
+  syncStage();
   setHint(baseHint());
 }
 
 function onLevel(level: number): void {
-  micBtn.style.setProperty("--level", String(Math.min(1, level * 10)));
+  const l = Math.min(1, level * 10);
+  micBtn.style.setProperty("--level", String(l));
+  stage.setLevel(l);
 }
 
 function cancelListening(): void {
@@ -732,11 +776,12 @@ async function hear(timeoutMs: number, prompt = "🎙 Je vous écoute… (Échap
   return t.ok ? { kind: "text", text: t.text.trim() } : { kind: "error", error: t.error };
 }
 
-async function say(text: string, gen = convGen): Promise<void> {
+async function say(text: string, gen = convGen, opts: { quiet?: boolean; caption?: string } = {}): Promise<void> {
   if (!text) return;
   setVoice("speaking", "🔊 Je réponds… (Échap ou clic sur le micro pour couper)");
+  stageCaption.textContent = opts.caption ?? text.replace(/[*_`#>]/g, "");
   const r = await api.speak(text);
-  if (!r.ok && r.error) addMessage("note", r.error);
+  if (!r.ok && r.error && !opts.quiet) addMessage("note", r.error);
   if (voiceActive && gen === convGen) {
     await sleep(250);
     setVoice("off");
@@ -748,6 +793,7 @@ const alive = (gen: number) => voiceActive && gen === convGen;
 async function startConversation(opts: { first?: string; greet?: boolean } = {}): Promise<void> {
   if (voiceActive) return;
   stopWake();
+  void api.stopSpeech();
   const st = await refreshVoiceStatus();
   if (!st.local.ready && !st.api) {
     setHint(NO_ENGINE);
@@ -976,15 +1022,18 @@ async function startWake(): Promise<void> {
   })();
 }
 
-micBtn.addEventListener("click", (ev) => {
-  if (!voiceActive) return void (ev.shiftKey ? dictateOnce() : startConversation());
+function onMicClick(shift: boolean): void {
+  if (!voiceActive) return void (shift ? dictateOnce() : startConversation());
   if (listening) return listening.finish();
   if (micBtn.dataset.voice === "speaking") return void api.stopSpeech();
   endConversation();
-});
+}
+micBtn.addEventListener("click", (ev) => onMicClick(ev.shiftKey));
+$("orb").addEventListener("click", (ev) => onMicClick(ev.shiftKey));
 api.onToggleDictation(() => (voiceActive ? endConversation() : void startConversation()));
 api.onHidden(() => {
   endConversation();
+  stage.stop();
 });
 
 /* Réglages */
@@ -1094,6 +1143,7 @@ function openSettings(): void {
   voiceSelect.add(new Option("Automatique (voix française du Mac)", "", false, !s.ttsVoice));
   if (s.ttsVoice) voiceSelect.add(new Option(s.ttsVoice, s.ttsVoice, false, true));
   const ttsRate = textInput(String(s.ttsRate), "185");
+  const greetOnLaunch = checkbox(s.greetOnLaunch);
   const speakReplies = checkbox(s.speakReplies);
   const voiceConfirm = checkbox(s.voiceConfirm);
   const wakeEnabled = checkbox(s.wakeWordEnabled);
@@ -1145,6 +1195,7 @@ function openSettings(): void {
     el("h2", "section", "Voix"),
     field("Moteur de dictée", sttEngine),
     field("État", sttStatusLine, "Installation gratuite et locale : cd apps/launcher && npm run voice:install"),
+    field("Dire bonjour au lancement", greetOnLaunch, "« Bonjour, c'est Cris, à ton service. » dit à voix haute à chaque démarrage."),
     field("Lire les réponses", speakReplies, "Même quand vous écrivez (la conversation vocale lit toujours les réponses)."),
     field("Moteur de voix", ttsEngine),
     field("État de la voix", ttsStatusLine, "Voix de qualité, gratuite et locale : cd apps/launcher && npm run tts:install"),
@@ -1226,6 +1277,7 @@ function openSettings(): void {
       showInDock: showInDock.checked,
       trayLabel: trayLabel.checked,
       sttEngine: sttEngine.value as LauncherState["settings"]["sttEngine"],
+      greetOnLaunch: greetOnLaunch.checked,
       speakReplies: speakReplies.checked,
       ttsEngine: ttsEngine.value as LauncherState["settings"]["ttsEngine"],
       piperModel: piperModel.value.trim(),
@@ -1253,6 +1305,7 @@ function openSettings(): void {
 }
 
 api.onShown(() => {
+  stage.start();
   promptEl.focus();
   promptEl.select();
   void api.getState().then((s) => (state = s));
@@ -1267,7 +1320,11 @@ async function init(): Promise<void> {
   }
   promptEl.focus();
   fit();
+  syncStage();
+  if (location.hash === "#e2e") stage.start();
   void startWake();
+  const greeting = await api.greeting();
+  if (greeting) void say(greeting.text, convGen, { quiet: true, caption: greeting.text });
 }
 
 if (location.hash === "#e2e") {

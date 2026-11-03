@@ -13,6 +13,7 @@ interface LauncherState {
     autoUpdate: boolean;
     showInDock: boolean;
     trayLabel: boolean;
+    greetOnLaunch: boolean;
     speakReplies: boolean;
     ttsVoice: string;
     ttsRate: number;
@@ -127,9 +128,11 @@ interface LauncherApi {
   getUpdate(): Promise<UpdateView>;
   runUpdate(): Promise<UpdateView>;
   openLink(url: string): Promise<void>;
-  resize(height: number): Promise<void>;
   hide(): Promise<void>;
   quit(): Promise<void>;
+  reload(): Promise<{ ok: boolean; error?: string }>;
+  greeting(): Promise<{ text: string } | null>;
+  onReload(cb: (e: { text: string; error: boolean }) => void): () => void;
   onShown(cb: () => void): () => void;
   onToggleDictation(cb: () => void): () => void;
   onNotice(cb: (text: string) => void): () => void;
