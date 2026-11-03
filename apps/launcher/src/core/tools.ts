@@ -1,6 +1,7 @@
 import { exec } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { getAppSettings, setBehavior, setTheme, setVoice, type AppControl } from "./appcontrol";
 import { Scope, ScopeError, classifyShellCommand, isSafeAppName, isSafeUrl } from "./security";
 import type { Host, ToolSchema } from "./types";
 
@@ -15,6 +16,10 @@ export interface ToolContext {
   /** Dossier où `create_project` crée les projets (doit être dans le périmètre). */
   projectsRoot: string;
   shellTimeoutMs?: number;
+  /** Réglages de l'application modifiables à la voix (voix, thème, comportement). Absent = outils indisponibles. */
+  app?: AppControl;
+  /** Dossiers de l'application elle-même : l'agent n'y écrit jamais (pas d'auto-modification du code). */
+  protectedPaths?: string[];
 }
 
 export interface ToolResult {
@@ -59,6 +64,29 @@ export function sanitizeProjectName(name: string): string {
     .replace(/^[-.]+|-+$/g, "");
   if (!cleaned) throw new Error("Nom de projet invalide.");
   return cleaned.slice(0, 80);
+}
+
+/** Vrai si `target` est un dossier protégé, est dedans, ou en contient un. */
+export function touchesProtected(target: string, protectedPaths: string[] | undefined): boolean {
+  return (protectedPaths ?? []).some((p) => {
+    const down = path.relative(p, target);
+    const up = path.relative(target, p);
+    const inside = (rel: string) => rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+    return inside(down) || inside(up);
+  });
+}
+
+function guardProtected(target: string, ctx: ToolContext): void {
+  if (touchesProtected(target, ctx.protectedPaths)) {
+    throw new Error(
+      `Refusé : ${target} fait partie du code de l'application. L'agent ne modifie pas le code d'AlphaCris (seulement les réglages, la voix et le thème) : pour changer le comportement, il faut passer par Cursor.`,
+    );
+  }
+}
+
+function needApp(ctx: ToolContext): AppControl {
+  if (!ctx.app) throw new Error("Les réglages de l'application ne sont pas disponibles ici.");
+  return ctx.app;
 }
 
 const tools: Record<string, ToolDef> = {
@@ -118,6 +146,7 @@ const tools: Record<string, ToolDef> = {
     ),
     async run(args, ctx) {
       const file = ctx.scope.resolve(str(args, "path"));
+      guardProtected(file, ctx);
       const content = typeof args.content === "string" ? args.content : "";
       if (exists(file)) {
         const ok = await ctx.host.confirm({
@@ -143,6 +172,8 @@ const tools: Record<string, ToolDef> = {
     async run(args, ctx) {
       const from = ctx.scope.resolve(str(args, "from"));
       const to = ctx.scope.resolve(str(args, "to"));
+      guardProtected(from, ctx);
+      guardProtected(to, ctx);
       if (!exists(from)) throw new Error(`Source introuvable : ${from}`);
       if (exists(to)) throw new Error(`La destination existe déjà : ${to} (aucun écrasement).`);
       const ok = await ctx.host.confirm({ title: "Déplacer ?", detail: `${from}\n→ ${to}`, risk: "confirm" });
@@ -162,6 +193,7 @@ const tools: Record<string, ToolDef> = {
     ),
     async run(args, ctx) {
       const target = ctx.scope.resolve(str(args, "path"));
+      guardProtected(target, ctx);
       if (ctx.scope.roots.includes(target)) throw new Error("Impossible de supprimer un dossier racine autorisé.");
       if (!exists(target)) throw new Error(`Introuvable : ${target}`);
       const ok = await ctx.host.confirm({
@@ -189,6 +221,7 @@ const tools: Record<string, ToolDef> = {
       const command = str(args, "command");
       const cwd = typeof args.cwd === "string" && args.cwd ? ctx.scope.resolve(args.cwd) : ctx.scope.roots[0];
       if (!cwd) throw new ScopeError("Aucun dossier autorisé n'est configuré.");
+      guardProtected(cwd, ctx);
       const { risk, reasons } = classifyShellCommand(command);
       const ok = await ctx.host.confirm({
         title: risk === "danger" ? "Commande potentiellement dangereuse" : "Exécuter cette commande ?",
@@ -280,6 +313,7 @@ const tools: Record<string, ToolDef> = {
       const files = args.files;
       if (!Array.isArray(files) || files.length === 0) throw new Error("Aucun fichier fourni.");
       const projectDir = ctx.scope.resolve(path.join(ctx.projectsRoot, name));
+      guardProtected(projectDir, ctx);
       if (exists(projectDir) && fs.readdirSync(projectDir).length > 0) {
         throw new Error(`Le dossier ${projectDir} existe déjà et n'est pas vide.`);
       }
@@ -301,6 +335,73 @@ const tools: Record<string, ToolDef> = {
         fs.writeFileSync(p.abs, p.content, "utf8");
       }
       return `Projet créé dans ${projectDir} (${planned.length} fichier(s)).`;
+    },
+  },
+
+  get_app_settings: {
+    schema: schema(
+      "get_app_settings",
+      "Affiche les réglages actuels d'AlphaCris : voix (moteur, voix, débit), thème (couleurs, opacité, bordure) et comportement. À appeler avant de modifier si tu as un doute sur l'état actuel ou les voix disponibles.",
+      {},
+      [],
+    ),
+    async run(_args, ctx) {
+      return await getAppSettings(needApp(ctx));
+    },
+  },
+
+  set_voice: {
+    schema: schema(
+      "set_voice",
+      "Change la voix d'AlphaCris, appliqué tout de suite. Précise uniquement ce qui change. Moteur Piper (voix neuronale locale), say (voix du Mac) ou auto. Pour une voix inconnue, l'outil liste celles qui sont installées.",
+      {
+        engine: { type: "string", enum: ["auto", "piper", "say"], description: "Moteur de voix." },
+        say_voice: { type: "string", description: "Nom d'une voix du Mac (ex: « Thomas », « Amélie »), ou « auto »." },
+        piper_voice: { type: "string", description: "Nom d'une voix Piper déjà installée (ex: « fr_FR-siwis-medium »), ou « auto »." },
+        rate: { type: "number", description: "Débit en mots par minute (80 à 400, 185 = naturel). Plus lent = plus petit." },
+      },
+      [],
+    ),
+    async run(args, ctx) {
+      return await setVoice(args, needApp(ctx));
+    },
+  },
+
+  set_theme: {
+    schema: schema(
+      "set_theme",
+      "Change le thème d'AlphaCris (couleurs, transparence « glass », bordure), appliqué tout de suite. Les couleurs sont des codes hexadécimaux : convertis toi-même « bleu », « rose »… en code. Préréglages : defaut, ocean, foret, couchant, rose, graphite. Le fond doit rester sombre.",
+      {
+        preset: { type: "string", description: "Préréglage complet (couleurs)." },
+        accent: { type: "string", description: "Couleur principale, ex: #7c5cff." },
+        accent2: { type: "string", description: "Seconde couleur (halo, ondes), ex: #2fd4ff." },
+        background: { type: "string", description: "Couleur du fond (sombre), ex: #0c0d14." },
+        glass: { type: "number", description: "Opacité du fond de la fenêtre, 0,25 à 1 (ou 25 à 100 %). Plus bas = plus transparent." },
+        border: { type: "number", description: "Visibilité de la bordure, 0 (aucune) à 0,6. Défaut 0,1." },
+        reset: { type: "boolean", description: "Rétablit d'abord le thème d'origine." },
+      },
+      [],
+    ),
+    async run(args, ctx) {
+      return setTheme(args, needApp(ctx));
+    },
+  },
+
+  set_behavior: {
+    schema: schema(
+      "set_behavior",
+      "Change un réglage de comportement existant d'AlphaCris, appliqué tout de suite : bonjour au lancement, mot d'activation (demande une confirmation), phrase d'activation, durée d'écoute de suite, lecture à voix haute des réponses. Ne permet rien d'autre.",
+      {
+        greet_on_launch: { type: "boolean", description: "Dire « Bonjour, c'est Cris » au lancement." },
+        wake_word_enabled: { type: "boolean", description: "Activer l'écoute permanente du mot d'activation (confirmation requise)." },
+        wake_phrase: { type: "string", description: "Phrase d'activation, 3 à 40 caractères." },
+        follow_up_seconds: { type: "number", description: "Secondes d'écoute après une réponse, sans répéter le mot d'activation (2 à 30)." },
+        speak_replies: { type: "boolean", description: "Lire aussi à voix haute les réponses en mode texte." },
+      },
+      [],
+    ),
+    async run(args, ctx) {
+      return await setBehavior(args, needApp(ctx), ctx.host);
     },
   },
 };

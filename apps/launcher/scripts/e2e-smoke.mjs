@@ -25,6 +25,10 @@ const server = http.createServer((req, res) => {
     let msg;
     if (b.response_format) msg = { role: "assistant", content: JSON.stringify({ summary: "Mock: images à part", assignments: [{ name: "a.png", dest: "Pics" }] }) };
     else if (last.role === "tool") msg = { role: "assistant", content: last.content.includes("Réponse de") ? `## Tableau créé\n\nFormat choisi : **${last.content.split(" : ").pop()}**\n\n- fichier \`stats.csv\`\n- 3 lignes\n\n| Nom | Valeur |\n|---|---|\n| a | 1 |` : "Terminé : " + last.content.slice(0, 60) };
+    else if (last.content.includes("thème")) msg = { role: "assistant", content: null, tool_calls: [{ id: "1", type: "function", function: { name: "set_theme", arguments: JSON.stringify({ preset: "ocean", glass: 0.5, border: 0.03 }) } }] };
+    else if (last.content.includes("plus lentement")) msg = { role: "assistant", content: null, tool_calls: [{ id: "1", type: "function", function: { name: "set_voice", arguments: JSON.stringify({ engine: "say", rate: 150 }) } }] };
+    else if (last.content.includes("sans bonjour")) msg = { role: "assistant", content: null, tool_calls: [{ id: "1", type: "function", function: { name: "set_behavior", arguments: JSON.stringify({ greet_on_launch: false, follow_up_seconds: 12 }) } }] };
+    else if (last.content.includes("réécris ton code")) msg = { role: "assistant", content: null, tool_calls: [{ id: "1", type: "function", function: { name: "write_file", arguments: JSON.stringify({ path: path.join(process.cwd(), "src/main/main.ts"), content: "// pwned" }) } }] };
     else if (last.content.includes("question")) msg = { role: "assistant", content: null, tool_calls: [{ id: "1", type: "function", function: { name: "ask_user", arguments: JSON.stringify({ question: "Quel **format** voulez-vous ?", choices: ["CSV", "Excel"] }) } }] };
     else if (last.content.includes("shell")) msg = { role: "assistant", content: null, tool_calls: [{ id: "1", type: "function", function: { name: "run_shell", arguments: JSON.stringify({ command: "echo hello-from-shell" }) } }] };
     else msg = { role: "assistant", content: null, tool_calls: [{ id: "1", type: "function", function: { name: "list_files", arguments: JSON.stringify({ path: allowed }) } }] };
@@ -35,7 +39,7 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const port = server.address().port;
 
-fs.writeFileSync(path.join(userData, "settings.json"), JSON.stringify({ provider: "custom", baseUrl: `http://127.0.0.1:${port}/v1`, model: "mock", allowedRoots: [allowed], projectsRoot: path.join(allowed, "Projects"), shortcut: "Alt+Space", dictationShortcut: "Alt+Shift+Space" }));
+fs.writeFileSync(path.join(userData, "settings.json"), JSON.stringify({ provider: "custom", baseUrl: `http://127.0.0.1:${port}/v1`, model: "mock", allowedRoots: [allowed, process.cwd()], projectsRoot: path.join(allowed, "Projects"), shortcut: "Alt+Space", dictationShortcut: "Alt+Shift+Space" }));
 
 const app = spawn("xvfb-run", ["-a", "node_modules/electron/dist/electron", ".", "--no-sandbox", `--user-data-dir=${userData}`, "--remote-debugging-port=9333", "--show", "--e2e"], { stdio: ["ignore", "pipe", "pipe"] });
 app.stdout.on("data", (d) => process.stdout.write("[app] " + d));
@@ -132,6 +136,34 @@ check("réponse par texte libre transmise", out.includes("Format ODS") && out.in
 // 4. historique
 const hist = await ev("window.launcher.getState().then(s => s.history)");
 check("historique enregistré", hist.length === 4 && hist[1] === "lance un shell", JSON.stringify(hist));
+
+// 4b. réglages à la voix / au texte : thème, voix, comportement appliqués tout de suite, sans redémarrage
+const css = (name) => ev(`getComputedStyle(document.documentElement).getPropertyValue(${JSON.stringify(name)}).trim()`);
+const savedSettings = () => JSON.parse(fs.readFileSync(path.join(userData, "settings.json"), "utf8"));
+check("thème d'origine : accent et verre", (await css("--accent")) === "#7c5cff" && (await css("--glass")) === "72%");
+const cardStyle = await ev(`(() => { const c = getComputedStyle(document.getElementById('card')); return { border: c.borderTopColor, width: c.borderTopWidth, shadow: c.boxShadow }; })()`);
+check("fenêtre : bordure fine et discrète, sans anneau noir", cardStyle.width === "1px" && /rgba\(255, 255, 255, 0\.1\)/.test(cardStyle.border) && !/0px 0px 0px 1px/.test(cardStyle.shadow), JSON.stringify(cardStyle));
+await shot("4a-glass-default");
+await type("change le thème");
+await sleep(2200);
+check("set_theme appliqué dans l'interface sans recharger", (await css("--accent")) === "#2f80ff" && (await css("--glass")) === "50%" && (await css("--border")) === "0.03", `${await css("--accent")} ${await css("--glass")} ${await css("--border")}`);
+check("thème enregistré dans les réglages", savedSettings().themeAccent === "#2f80ff" && savedSettings().themeGlass === 0.5);
+check("le fond de la carte devient translucide", await ev("getComputedStyle(document.getElementById('card')).backgroundColor") .then((c) => /color\(srgb|rgba/.test(c)), await ev("getComputedStyle(document.getElementById('card')).backgroundColor"));
+await sleep(500);
+await shot("4c-theme-ocean");
+await type("parle plus lentement");
+await sleep(2200);
+check("set_voice enregistré tout de suite", savedSettings().ttsRate === 150 && savedSettings().ttsEngine === "say");
+await type("lance sans bonjour");
+await sleep(2200);
+check("set_behavior enregistré tout de suite", savedSettings().greetOnLaunch === false && savedSettings().followUpSeconds === 12);
+const srcBefore = fs.readFileSync("src/main/main.ts", "utf8");
+await type("réécris ton code");
+await sleep(2200);
+check("aucune modification du code de l'application", fs.readFileSync("src/main/main.ts", "utf8") === srcBefore && !(await text("#messages")).includes("pwned"));
+check("la demande de modification de code est refusée (outil en erreur, sans carte de confirmation)", (await text("#messages")).includes("ERREUR: Refusé") && (await ev("document.querySelectorAll('.card.confirm:not(.done)').length")) === 0, (await text("#messages")).slice(-160));
+await ev("window.launcher.updateSettings({ themeAccent: '#7c5cff', themeAccent2: '#2fd4ff', themeBackground: '#0c0d14', themeGlass: 0.72, themeBorder: 0.1 }).then(r => r.state.settings.themeAccent)");
+await sleep(300);
 
 // 5. mode dossier : plan par type, apply, undo
 const plan = await ev(`window.launcher.planFolder(${JSON.stringify(allowed)}, '', 'type')`);

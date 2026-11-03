@@ -10,7 +10,7 @@ afterEach(() => sb?.cleanup());
 describe("outils", () => {
   it("expose les outils attendus", () => {
     expect(TOOL_NAMES).toEqual(
-      expect.arrayContaining(["list_files", "read_file", "write_file", "move_file", "trash_file", "run_shell", "open_app", "open_url", "create_project"]),
+      expect.arrayContaining(["list_files", "read_file", "write_file", "move_file", "trash_file", "run_shell", "open_app", "open_url", "create_project", "get_app_settings", "set_voice", "set_theme", "set_behavior"]),
     );
   });
 

@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld("launcher", {
   quit: () => ipcRenderer.invoke("app:quit"),
   reload: () => ipcRenderer.invoke("app:reload"),
   greeting: () => ipcRenderer.invoke("voice:greeting"),
+  onSettings: (cb: Listener<unknown>) => on("ui:settings", cb),
   onReload: (cb: Listener<{ text: string; error: boolean }>) => on("ui:reload", cb),
   onShown: (cb: Listener<void>) => on("ui:shown", cb),
   onToggleDictation: (cb: Listener<void>) => on("ui:toggle-dictation", cb),

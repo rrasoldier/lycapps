@@ -27,6 +27,11 @@ interface LauncherState {
     wakeWordEnabled: boolean;
     wakePhrase: string;
     followUpSeconds: number;
+    themeAccent: string;
+    themeAccent2: string;
+    themeBackground: string;
+    themeGlass: number;
+    themeBorder: number;
   };
   history: string[];
   llmKeySource: "env" | "keychain" | "none";
@@ -134,6 +139,7 @@ interface LauncherApi {
   greeting(): Promise<{ text: string } | null>;
   onReload(cb: (e: { text: string; error: boolean }) => void): () => void;
   onShown(cb: () => void): () => void;
+  onSettings(cb: (state: LauncherState) => void): () => void;
   onToggleDictation(cb: () => void): () => void;
   onNotice(cb: (text: string) => void): () => void;
   onOpenSettings(cb: () => void): () => void;

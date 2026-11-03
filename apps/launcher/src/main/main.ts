@@ -17,6 +17,7 @@ import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
+import type { AppControl } from "../core/appcontrol";
 import { getProvider, PROVIDERS } from "../core/llm";
 import { LauncherService, llmSecretName, SECRET_TRANSCRIPTION } from "../core/service";
 import { HistoryStore, SettingsStore, type Settings } from "../core/settings";
@@ -28,6 +29,8 @@ import { importLoginEnv } from "./loginEnv";
 import { KeychainSecrets } from "./secrets";
 import { createTrayIcon } from "./trayIcon";
 import { GREETING_TEXT, pronounceForSpeech } from "../core/greeting";
+import { voicesDir } from "../core/piper";
+import { realpathLoose } from "../core/security";
 import { PiperTts } from "./piper";
 import { createSpeaker, listVoices, resolveVoice } from "./speech";
 
@@ -99,12 +102,69 @@ const host: Host = {
   },
 };
 
+/** Dossier du dépôt de l'application (là où se trouve `.git`), sinon le dossier de l'app : l'agent n'y écrit jamais. */
+function appSourceRoot(): string {
+  const appDir = path.resolve(__dirname, "../..");
+  for (let dir = appDir, i = 0; i < 6; i++, dir = path.dirname(dir)) {
+    if (fs.existsSync(path.join(dir, ".git"))) return dir;
+    if (path.dirname(dir) === dir) break;
+  }
+  return appDir;
+}
+
+function piperVoiceNames(): string[] {
+  try {
+    return fs
+      .readdirSync(voicesDir())
+      .filter((f) => f.endsWith(".onnx") && fs.existsSync(path.join(voicesDir(), `${f}.json`)))
+      .map((f) => f.replace(/\.onnx$/, ""))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+/** Réglages modifiables à la voix : même enregistrement et mêmes effets de bord que l'écran de réglages, puis diffusion à l'interface. */
+const appControl: AppControl = {
+  settings: () => settingsStore.get(),
+  apply(patch) {
+    const s = settingsStore.update(patch);
+    applySettingsEffects(s);
+    if (win && !win.isDestroyed()) win.webContents.send("ui:settings", buildState());
+    return s;
+  },
+  async sayVoices() {
+    return (await listVoices()).filter((v) => v.locale.startsWith("fr")).map((v) => v.name);
+  },
+  piperVoices: piperVoiceNames,
+  piperModelPath: (name) => path.join(voicesDir(), `${name}.onnx`),
+  async voiceStatus() {
+    const st = await tts.status();
+    return st.detail;
+  },
+  async wakeProblem() {
+    const st = await service.sttStatus();
+    return st.local.ready ? null : st.local.detail;
+  },
+};
+
 const service = new LauncherService({
   getSettings: () => settingsStore.get(),
   updateSettings: (patch) => settingsStore.update(patch),
   secrets,
   host,
+  app: appControl,
+  protectedPaths: [...new Set([realpathLoose(appSourceRoot()), realpathLoose(path.resolve(__dirname, "../.."))])],
 });
+
+function applySettingsEffects(s: Settings): string[] {
+  const errors = registerShortcuts(s);
+  applyLoginItem(s);
+  refreshTrayMenu();
+  applyTrayTitle();
+  applyDock(s.showInDock);
+  return errors;
+}
 
 function resolvePending(): void {
   for (const resolve of pendingConfirms.values()) resolve(false);
@@ -127,7 +187,7 @@ function createWindow(): BrowserWindow {
     fullscreenable: false,
     skipTaskbar: true,
     alwaysOnTop: true,
-    hasShadow: true,
+    hasShadow: false,
     webPreferences: {
       preload: path.join(__dirname, "../preload/preload.js"),
       contextIsolation: true,
@@ -331,11 +391,7 @@ function registerIpc(): void {
     const allowedKeys = new Set(Object.keys(settingsStore.get()));
     const clean = Object.fromEntries(Object.entries(patch ?? {}).filter(([k]) => allowedKeys.has(k))) as Partial<Settings>;
     const s = settingsStore.update(clean);
-    const errors = registerShortcuts(s);
-    applyLoginItem(s);
-    refreshTrayMenu();
-    applyTrayTitle();
-    applyDock(s.showInDock);
+    const errors = applySettingsEffects(s);
     return { state: buildState(), errors };
   });
 

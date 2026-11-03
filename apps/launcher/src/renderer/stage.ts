@@ -44,13 +44,18 @@ interface Palette {
   b: number;
 }
 
-const PALETTES: Record<StageMode, Palette> = {
-  idle: { a: 255, b: 195 },
-  listening: { a: 262, b: 190 },
-  thinking: { a: 285, b: 38 },
-  speaking: { a: 190, b: 150 },
-  wake: { a: 235, b: 205 },
-};
+/** Teintes de l'orbe par mode, déduites des deux couleurs du thème (la réflexion garde une touche ambre). */
+export function palettesFor(hueA: number, hueB: number): Record<StageMode, Palette> {
+  return {
+    idle: { a: hueA, b: hueB },
+    listening: { a: hueA + 7, b: hueB - 5 },
+    thinking: { a: hueA + 30, b: 38 },
+    speaking: { a: hueB, b: hueB - 40 },
+    wake: { a: hueA - 20, b: hueB + 10 },
+  };
+}
+
+const DEFAULT_HUES = { hueA: 255, hueB: 195 };
 
 const BARS = 112;
 const PARTICLES = 46;
@@ -60,7 +65,9 @@ export class Stage {
   private mode: StageMode = "idle";
   private mic = 0;
   private level = 0.08;
-  private hue = { ...PALETTES.idle };
+  private palettes = palettesFor(DEFAULT_HUES.hueA, DEFAULT_HUES.hueB);
+  private satScale = 1;
+  private hue = { ...this.palettes.idle };
   private raf = 0;
   private last = 0;
   private width = 0;
@@ -79,6 +86,12 @@ export class Stage {
 
   setMode(mode: StageMode): void {
     this.mode = mode;
+  }
+
+  /** Couleurs du thème : teintes principale et secondaire, saturation relative (0,1 à 1). */
+  setTheme(hueA: number, hueB: number, sat: number): void {
+    this.palettes = palettesFor(hueA, hueB);
+    this.satScale = clamp01(sat) || 1;
   }
 
   /** Niveau du micro, de 0 à 1. */
@@ -114,12 +127,12 @@ export class Stage {
   }
 
   private color(h: number, s: number, l: number, a: number): string {
-    return `hsla(${h.toFixed(0)}, ${s}%, ${l}%, ${a.toFixed(3)})`;
+    return `hsla(${(((h % 360) + 360) % 360).toFixed(0)}, ${(s * this.satScale).toFixed(0)}%, ${l}%, ${a.toFixed(3)})`;
   }
 
   private draw(t: number, dt: number): void {
     const { ctx, width: w, height: h } = this;
-    const pal = PALETTES[this.mode];
+    const pal = this.palettes[this.mode];
     this.hue.a += (pal.a - this.hue.a) * (1 - Math.exp(-3 * dt));
     this.hue.b += (pal.b - this.hue.b) * (1 - Math.exp(-3 * dt));
     this.level = followLevel(this.level, targetLevel(this.mode, this.mic, t), dt);

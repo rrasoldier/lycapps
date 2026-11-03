@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { AppControl } from "./appcontrol";
 import { runAgent } from "./agent";
 import {
   CursorTextClient,
@@ -51,6 +52,10 @@ export interface ServiceDeps {
   cursorSdk?: () => Promise<CursorSdkLike>;
   /** Exécution de commandes (whisper.cpp) : injectable pour les tests. */
   run?: Runner;
+  /** Réglages modifiables à la voix (voix, thème, comportement). */
+  app?: AppControl;
+  /** Dossiers de l'application elle-même, protégés contre toute écriture par l'agent. */
+  protectedPaths?: string[];
   /** Permet d'injecter un faux LLM dans les tests. */
   llmFactory?: (s: Settings, apiKey: string | undefined) => LlmClient;
 }
@@ -150,7 +155,7 @@ export class LauncherService {
 
   private toolContext(): ToolContext {
     const s = this.deps.getSettings();
-    return { scope: this.scope(), host: this.deps.host, projectsRoot: s.projectsRoot };
+    return { scope: this.scope(), host: this.deps.host, projectsRoot: s.projectsRoot, app: this.deps.app, protectedPaths: this.deps.protectedPaths };
   }
 
   /** Oublie la conversation en cours (mémoire de l'agent). */

@@ -1,5 +1,6 @@
 import { parseMarkdown, type Block, type Inline } from "./markdown.js";
 import { Stage, type StageMode } from "./stage.js";
+import { applyThemeVars, DEFAULT_THEME_VALUES, orbColors, type ThemeValues } from "./theme.js";
 import { Mic, type Listening } from "./voice.js";
 
 const api = window.launcher;
@@ -26,6 +27,13 @@ const DEFAULT_PLACEHOLDER = "Écrire à AlphaCris…";
 const stage = new Stage($<HTMLCanvasElement>("orb"));
 const stageStatus = $("stage-status");
 const stageCaption = $("stage-caption");
+
+function applyTheme(t: ThemeValues): void {
+  applyThemeVars(t);
+  const { hueA, hueB, sat } = orbColors(t);
+  stage.setTheme(hueA, hueB, sat);
+}
+
 const FOLDER_HINT = "Mode dossier : aperçu uniquement, rien n'est modifié avant votre confirmation.";
 
 interface PendingAsk {
@@ -1038,6 +1046,7 @@ api.onHidden(() => {
 
 /* Réglages */
 function closeSettings(): void {
+  applyTheme(state.settings);
   settingsEl.hidden = true;
   promptEl.focus();
   fit();
@@ -1123,6 +1132,50 @@ function openSettings(): void {
     c.checked = value;
     return c;
   };
+  const colorInput = (value: string) => {
+    const c = el("input");
+    c.type = "color";
+    c.value = /^#[0-9a-f]{6}$/i.test(value) ? value : "#000000";
+    return c;
+  };
+  const accentIn = colorInput(s.themeAccent);
+  const accent2In = colorInput(s.themeAccent2);
+  const bgIn = colorInput(s.themeBackground);
+  const rangeField = (min: number, max: number, value: number) => {
+    const wrap = el("div", "theme-row");
+    const r = el("input");
+    r.type = "range";
+    r.min = String(min);
+    r.max = String(max);
+    r.value = String(Math.round(value * 100));
+    const out = el("output", "", `${r.value} %`);
+    r.addEventListener("input", () => (out.textContent = `${r.value} %`));
+    wrap.append(r, out);
+    return { wrap, input: r };
+  };
+  const glass = rangeField(25, 100, s.themeGlass);
+  const border = rangeField(0, 60, s.themeBorder);
+  const glassField = glass.wrap;
+  const borderField = border.wrap;
+  const draftTheme = (): ThemeValues => ({
+    themeAccent: accentIn.value,
+    themeAccent2: accent2In.value,
+    themeBackground: bgIn.value,
+    themeGlass: Number(glass.input.value) / 100,
+    themeBorder: Number(border.input.value) / 100,
+  });
+  const previewTheme = () => applyTheme(draftTheme());
+  for (const i of [accentIn, accent2In, bgIn, glass.input, border.input]) i.addEventListener("input", previewTheme);
+  const resetTheme = el("button", "", "Rétablir le thème d'origine");
+  resetTheme.onclick = () => {
+    accentIn.value = DEFAULT_THEME_VALUES.themeAccent;
+    accent2In.value = DEFAULT_THEME_VALUES.themeAccent2;
+    bgIn.value = DEFAULT_THEME_VALUES.themeBackground;
+    glass.input.value = String(Math.round(DEFAULT_THEME_VALUES.themeGlass * 100));
+    border.input.value = String(Math.round(DEFAULT_THEME_VALUES.themeBorder * 100));
+    for (const r of [glass.input, border.input]) r.dispatchEvent(new Event("input"));
+    previewTheme();
+  };
   const showInDock = checkbox(s.showInDock);
   const trayLabel = checkbox(s.trayLabel);
   const quitBtn = el("button", "danger", "Quitter AlphaCris");
@@ -1192,6 +1245,13 @@ function openSettings(): void {
     field("Clé dictée (Whisper)", sttKey),
     field("Raccourci principal", shortcut, "Format Electron, ex. Alt+Space, CommandOrControl+Shift+Space"),
     field("Raccourci voix", dictation, "Démarre/arrête la conversation vocale depuis n'importe où."),
+    el("h2", "section", "Thème"),
+    field("Couleur principale", accentIn),
+    field("Seconde couleur", accent2In, "Halo et ondes de l'orbe."),
+    field("Fond", bgIn, "Doit rester sombre."),
+    field("Transparence du fond", glassField, "Plus c'est bas, plus la fenêtre est transparente."),
+    field("Bordure", borderField, "0 = aucune bordure."),
+    field("", resetTheme),
     el("h2", "section", "Voix"),
     field("Moteur de dictée", sttEngine),
     field("État", sttStatusLine, "Installation gratuite et locale : cd apps/launcher && npm run voice:install"),
@@ -1290,8 +1350,10 @@ function openSettings(): void {
       followUpSeconds: Math.min(30, Math.max(2, Number.parseInt(followUp.value, 10) || 8)),
       whisperBin: whisperBin.value.trim(),
       whisperModel: whisperModel.value.trim(),
+      ...draftTheme(),
     });
     state = res.state;
+    applyTheme(state.settings);
     errs.push(...res.errors);
     messages.textContent = errs.length ? errs.join("\n") : "Réglages enregistrés.";
     stopWake();
@@ -1311,8 +1373,17 @@ api.onShown(() => {
   void api.getState().then((s) => (state = s));
 });
 
+api.onSettings((next) => {
+  state = next;
+  applyTheme(state.settings);
+  stopWake();
+  if (!state.settings.wakeWordEnabled && !voiceActive) mic.close();
+  void startWake();
+});
+
 async function init(): Promise<void> {
   state = await api.getState();
+  applyTheme(state.settings);
   if (state.secretsUnreadable && state.llmKeySource === "none") {
     setHint("La clé enregistrée n'est plus lisible (autorisez l'accès au Trousseau si macOS le demande, ou ressaisissez-la dans ⚙ → Clé API).");
   } else if (state.llmKeySource === "none" && state.settings.provider !== "ollama" && state.settings.provider !== "custom") {

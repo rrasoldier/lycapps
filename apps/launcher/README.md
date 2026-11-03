@@ -166,6 +166,26 @@ npm run voice:install -- base    # variante plus légère/rapide (~150 Mo)
 
 Puis relancer l'app. Sans cette installation, la voix utilise une clé Whisper (API) si elle existe. Moteur réglable : réglages → Voix → « Moteur de dictée » (automatique : local si installé, sinon API).
 
+### Modifier AlphaCris en lui parlant (voix, thème, comportement)
+
+Sans passer par Cursor ni par l'écran de réglages, on peut demander à l'agent (à la voix ou à l'écrit) de changer certains réglages. Ils sont **enregistrés et appliqués immédiatement**, sans redémarrage, et l'agent confirme en une phrase ce qui a changé (lue à voix haute en conversation vocale).
+
+| Outil | Ce qu'il change | Exemples à dire |
+|---|---|---|
+| `set_voice` | moteur (Piper / voix du Mac / auto), voix du Mac, voix Piper **déjà installée**, débit (80–400 mots/min) | « Passe sur la voix Thomas », « parle moins vite », « reviens à Piper » |
+| `set_theme` | couleur principale, seconde couleur, fond (sombre), opacité du fond « glass » (25–100 %), visibilité de la bordure (0–60 %), préréglages `defaut`, `ocean`, `foret`, `couchant`, `rose`, `graphite`, retour au thème d'origine | « Mets le thème océan », « fenêtre plus transparente », « supprime la bordure », « accent rose » |
+| `set_behavior` | bonjour au lancement, mot d'activation (on/off), phrase d'activation, durée d'écoute de suite (2–30 s), lecture des réponses écrites | « Arrête de dire bonjour au démarrage », « écoute 15 secondes après ma demande », « change le mot d'activation en ok Cris » |
+| `get_app_settings` | lecture seule : état actuel et voix disponibles | « Quelles voix as-tu ? » |
+
+Garde-fous :
+
+- **Seulement des réglages et le thème.** L'agent ne modifie jamais le code d'AlphaCris : `write_file`, `move_file`, `trash_file`, `create_project` et le dossier de travail de `run_shell` refusent tout chemin situé dans le dépôt de l'application (même s'il est dans les dossiers autorisés), et le prompt lui demande de répondre à voix haute que « ça demande de modifier le code, il faut passer par Cursor » quand la demande dépasse les réglages (nouveau comportement, nouveau bouton…). Limite assumée : une commande shell approuvée au clic reste non confinée (voir plus bas), c'est la confirmation qui protège.
+- Pas d'accès aux clés API, au fournisseur, aux dossiers autorisés ni aux raccourcis ; valeurs validées et bornées (couleurs `#rrggbb`, fond obligatoirement sombre et accents visibles pour que l'interface reste lisible, voix du Mac contrôlée contre la liste réelle, voix Piper contrôlée contre `~/.cursor-launcher/voices`, jamais un chemin donné par le modèle).
+- **Activer le mot d'activation demande une confirmation explicite** (micro ouvert en permanence) ; refus = rien ne change. La désactiver est libre.
+- Pour revenir en arrière : « remets le thème d'origine », ou ⚙ → Thème → « Rétablir le thème d'origine ». Les mêmes réglages sont aussi modifiables à la main dans ⚙ (section « Thème » : sélecteurs de couleur, curseurs de transparence et de bordure, aperçu en direct).
+
+**Fenêtre « glass »** : fond translucide teinté, bordure d'un pixel très discrète (10 % de blanc par défaut), ombre légère, sans anneau noir. La transparence est celle du CSS (la fenêtre Electron est transparente) : elle ne floute pas le bureau derrière, donc un fond très transparent sur un bureau chargé peut nuire à la lisibilité (plancher à 25 %).
+
 ### Bonjour au lancement
 
 À chaque démarrage, AlphaCris dit « Bonjour, c'est Cris, à ton service. » (Piper si installé, sinon `say`) pendant que l'orbe s'anime. Le nom reste affiché « Cris » / « AlphaCris » ; pour la voix il est écrit « Criss » (`src/core/greeting.ts`, `pronounceForSpeech`) afin que le moteur dise /kʁis/ (comme « criss ») et non « cri » : la même règle s'applique à toute réponse lue (« Cris » et « AlphaCris » → « Criss », « Alpha Criss » ; le mot « cris » en minuscules n'est pas touché). Pas de bonjour après « Recharger », après une mise à jour automatique ni dans l'interface rechargée. À désactiver : ⚙ → Voix → « Dire bonjour au lancement ». Le modèle Piper est chargé dès le début du démarrage pour que le bonjour parte tout de suite.
@@ -243,6 +263,8 @@ src/core/        Logique pure, sans Electron (testée)
   organizer.ts     Mode dossier : scan, plan (par type / via LLM), validation, application, annulation
   service.ts       Orchestration (clés, plans en attente, autorisation de dossier, transcription)
   settings.ts      Réglages et historique (JSON)
+  theme.ts         Thème (couleurs, glass, bordure) : validation, préréglages, contraste
+  appcontrol.ts    Réglages modifiables par l'agent (voix, thème, comportement) : validation et confirmations
   transcribe.ts    Whisper via API (multipart /audio/transcriptions)
   whisper.ts       Whisper local (whisper.cpp) : détection du binaire/modèle, transcription
   voice.ts         Voix pure : texte → oral, voix du Mac, oui/non, choix, mot d'activation, filtre Whisper
@@ -258,7 +280,7 @@ Le renderer ne touche jamais au disque : tout passe par l'IPC vers le processus 
 ## Tests
 
 ```bash
-npm test             # 182 tests unitaires/intégration (Vitest)
+npm test             # 206 tests unitaires/intégration (Vitest)
 npm run typecheck
 npm run build
 npm run e2e:linux    # app Electron réelle sous Xvfb + faux serveur LLM (nécessite xvfb-run)
@@ -277,6 +299,7 @@ Non testable depuis la VM Linux :
 - [ ] **Barre de menus** : icône template (32 px @2x, `createFromBuffer`) + titre « AlphaCris » visibles ; si masqués, Dock + fenêtre immédiats (`tray.getBounds()` vide/hors écran : heuristique non vérifiée sur Mac) ; `⌘Q`, bouton ⏻, bouton dans ⚙ et « Afficher dans le Dock » quittent bien l'app.
 - [ ] Prise de focus de la fenêtre depuis une autre app, masquage à la perte de focus, restitution du focus à l'app précédente (`app.hide()`).
 - [ ] **Recharger** : bouton / `⇧⌘R` depuis `AlphaCris.app` lancée par le Finder (`git`/`npm` retrouvés via le shell de connexion, `app.relaunch` avec la copie d'Electron renommée, fenêtre qui revient), et `npm run dev` dans Cursor.
+- [ ] **Glass et réglages à la voix** : rendu de la fenêtre translucide sur un vrai bureau (lisibilité, bordure discrète, ombre non coupée sur écran Retina), « mets le thème océan » / « parle moins vite » / « arrête le bonjour » dits au micro, et la confirmation parlée avec la nouvelle voix.
 - [ ] **Scène vocale** : fluidité de l'orbe (canvas 2D) sur l'écran Retina, réaction au vrai micro, bonjour dit par Piper dès l'ouverture (prononciation « criss »).
 - [ ] Lancement au login (`setLoginItemSettings`, visible dans Réglages Système → Général → Éléments de connexion).
 - [ ] **Fournisseur Cursor** avec une vraie clé : un prompt avec appel d'outil (ex. « liste mon dossier Downloads »), confirmation affichée pour un shell, annulation (Échap), « Lister les modèles » et sélection d'un modèle Claude, mode dossier. Vérifier aussi que le modèle appelle bien nos outils `custom-user-tools` (et qu'aucun outil intégré Cursor n'est proposé), le chargement du SDK dans l'app packagée (`asarUnpack`, binaire darwin) et l'usage « SDK » dans le tableau de bord Cursor.

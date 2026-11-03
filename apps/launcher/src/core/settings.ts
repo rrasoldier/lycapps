@@ -1,8 +1,9 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { DEFAULT_THEME, type ThemeSettings } from "./theme";
 
-export interface Settings {
+export interface Settings extends ThemeSettings {
   shortcut: string;
   dictationShortcut: string;
   provider: string;
@@ -71,6 +72,7 @@ export function defaultSettings(home = os.homedir()): Settings {
     wakeWordEnabled: false,
     wakePhrase: "hey cursor",
     followUpSeconds: 8,
+    ...DEFAULT_THEME,
   };
 }
 
