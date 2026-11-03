@@ -24,8 +24,8 @@
     "vitest": "^2.1.0"
   },
   "build": {
-    "appId": "app.lycapps.cursor-launcher",
-    "productName": "Cursor Launcher",
+    "appId": "app.lycapps.alphacris",
+    "productName": "AlphaCris",
     "files": [
       "dist/**/*",
       "resources/**/*",
@@ -48,11 +48,11 @@
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
         "LSUIElement": true,
-        "NSMicrophoneUsageDescription": "Cursor Launcher utilise le micro pour la dictée vocale.",
-        "NSAppleEventsUsageDescription": "Cursor Launcher peut ouvrir et piloter des applications à votre demande.",
-        "NSDocumentsFolderUsageDescription": "Cursor Launcher lit et range les fichiers que vous autorisez.",
-        "NSDesktopFolderUsageDescription": "Cursor Launcher lit et range les fichiers que vous autorisez.",
-        "NSDownloadsFolderUsageDescription": "Cursor Launcher lit et range les fichiers que vous autorisez."
+        "NSMicrophoneUsageDescription": "AlphaCris utilise le micro pour la dictée vocale.",
+        "NSAppleEventsUsageDescription": "AlphaCris peut ouvrir et piloter des applications à votre demande.",
+        "NSDocumentsFolderUsageDescription": "AlphaCris lit et range les fichiers que vous autorisez.",
+        "NSDesktopFolderUsageDescription": "AlphaCris lit et range les fichiers que vous autorisez.",
+        "NSDownloadsFolderUsageDescription": "AlphaCris lit et range les fichiers que vous autorisez."
       }
     },
     "asarUnpack": [

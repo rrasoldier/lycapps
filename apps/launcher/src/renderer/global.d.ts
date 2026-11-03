@@ -28,6 +28,7 @@ interface LauncherState {
   llmKeySource: "env" | "keychain" | "none";
   hasTranscriptionKey: boolean;
   secretsAvailable: boolean;
+  secretsUnreadable: boolean;
   defaults: { baseUrl: string; model: string };
   providers: Array<{ id: string; label: string; baseUrl: string; defaultModel: string }>;
   platform: string;
@@ -127,6 +128,7 @@ interface LauncherApi {
   quit(): Promise<void>;
   onShown(cb: () => void): () => void;
   onToggleDictation(cb: () => void): () => void;
+  onNotice(cb: (text: string) => void): () => void;
   onOpenSettings(cb: () => void): () => void;
   onAsk(cb: (req: AskView) => void): () => void;
   onConfirm(cb: (req: ConfirmView) => void): () => void;

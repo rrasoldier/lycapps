@@ -10,9 +10,8 @@ export const TRAY_ICON_1X = "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAfEl
 export const TRAY_ICON_2X = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAA9klEQVR4nO2WwQ2DMAxF35Ejc3DOFNzYgClQlkIMwLEbsETHaFXJBxTZKEkDQVWf5Etw8E9sJ4E/aTSAA3oxJ2OnMwIr8DJsFZ/ifFa5HQQObZM5RZgSAoc21Qz+tYj+4KcPwAODmJcxyz8rHVrOnxLQYhAfrSaSGI3gXcTczhCR1B1aq2krb8VCBqNFo2iMnIeBl933RRGi1UTUYeWUiT7wWRSfJfDxio+LEaBV/37724Nq3++CloaobqguoHoKqhchtduQOxxE1D6KKXwZzTkCKHQd/4aInCfZXFoEGY/SU0SQ+Cw/TUQKlohL0URcTijiz314A+aYSTeU/9gzAAAAAElFTkSuQmCC";
 
 export function createTrayIcon(): NativeImage {
-  const icon = nativeImage.createEmpty();
-  icon.addRepresentation({ scaleFactor: 1, buffer: Buffer.from(TRAY_ICON_1X, "base64") });
-  icon.addRepresentation({ scaleFactor: 2, buffer: Buffer.from(TRAY_ICON_2X, "base64") });
+  // Une seule représentation @2x (32 px = 16 pt) : c'est la forme la plus fiable pour un item de barre de menus.
+  const icon = nativeImage.createFromBuffer(Buffer.from(TRAY_ICON_2X, "base64"), { scaleFactor: 2 });
   icon.setTemplateImage(true);
   return icon;
 }

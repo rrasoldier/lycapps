@@ -3,7 +3,7 @@
 ## jarvis-assistant-vocal (inspiration)
 
 Le dépôt https://github.com/sosoj92/jarvis-assistant-vocal est distribué sous licence MIT. La conversation vocale de
-Cursor Launcher s'en inspire (détection de parole auto-calibrée, fenêtre d'écoute de suite, mots d'arrêt, filtre des
+AlphaCris s'en inspire (détection de parole auto-calibrée, fenêtre d'écoute de suite, mots d'arrêt, filtre des
 hallucinations de Whisper, réponses courtes lues phrase par phrase, confirmation orale stricte). Aucun fichier n'a été copié :
 le code est une réécriture originale en TypeScript. La licence d'origine est reproduite ci-dessous par courtoisie.
 

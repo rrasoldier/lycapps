@@ -1,9 +1,9 @@
-# Cursor Launcher (MVP)
+# AlphaCris (MVP)
 
 Lanceur global pour Mac, façon Alfred / Raycast, qui donne accès à un agent IA capable d'agir sur l'ordinateur (fichiers, shell, applications) depuis une simple barre de prompt, sans ouvrir l'interface complète de Cursor.
 
 - **Raccourci global** (défaut `Option+Espace`) : affiche/masque une fenêtre flottante sans bordure, centrée en haut de l'écran, façon Spotlight.
-- **Application de barre de menus** : pas d'icône dans le Dock, lancement au démarrage optionnel.
+- **Application de barre de menus** : item « AlphaCris » dans la barre de menus, pas d'icône dans le Dock par défaut, lancement au démarrage optionnel.
 - **Interface de conversation** : fil de discussion avec bulles, réponses formatées en Markdown (titres, listes, tableaux, code, liens), étapes de l'agent visibles, confirmations intégrées au fil, mémoire de la conversation. L'agent peut vous **poser des questions** (`ask_user`) auxquelles on répond **par boutons ou par texte**.
 - **Agent** avec outils : lister / lire / écrire / déplacer des fichiers, Corbeille, commande shell, ouvrir une app ou une URL, créer un projet.
 - **Mode dossier** : glisser-déposer (ou 📁) un dossier + une consigne → aperçu du plan → confirmation → application → annulation possible.
@@ -45,10 +45,12 @@ Options de ligne de commande : `--show` affiche la fenêtre au démarrage (prati
 ### Lancer sans Terminal, et mises à jour
 
 ```bash
-npm run app:install   # crée ~/Applications/Cursor Launcher.app (à faire une seule fois)
+npm run app:install   # crée ~/Applications/AlphaCris.app (à faire une seule fois)
 ```
 
-Ensuite : double-clic sur **Cursor Launcher** (Finder, Launchpad, Spotlight), ou glisser l'app dans le Dock. Pour qu'elle démarre à la connexion : Réglages Système → Général → Éléments de connexion → `+`. Cette petite app lance simplement l'application depuis le dossier du dépôt (le chemin est mémorisé : si vous déplacez le dossier, relancez `npm run app:install`).
+Ensuite : double-clic sur **AlphaCris** (Finder, Launchpad, Spotlight), ou glisser l'app dans le Dock. Pour qu'elle démarre à la connexion : Réglages Système → Général → Éléments de connexion → `+`. `AlphaCris.app` est une copie d'Electron renommée (nom, identifiant `app.lycapps.alphacris`, signature locale ad hoc) qui charge le code de ce dossier : le chemin est mémorisé, si vous déplacez le dossier relancez `npm run app:install`. L'ancien « Cursor Launcher.app » est supprimé automatiquement ; si l'ancienne version tourne encore, la quitter (⌘Q) avant d'ouvrir AlphaCris. Si la copie d'Electron échoue, le script installe un petit lanceur de secours du même nom.
+
+**Renommage : rien n'est perdu.** Les données gardent leur emplacement : réglages, historique et clé chiffrée dans `~/Library/Application Support/Cursor Launcher/`, modèles Whisper dans `~/.cursor-launcher/`. Le nom interne « Cursor Launcher » (champ `productName` de `package.json`) est conservé exprès : il détermine ce dossier et l'entrée « Safe Storage » du Trousseau. Au premier lancement d'AlphaCris, macOS peut redemander l'accès au Trousseau (nouvelle identité d'app) : choisir « Toujours autoriser » ; si la clé n'est plus lisible, l'app l'indique et on la ressaisit dans ⚙. L'accès au micro et aux dossiers est aussi redemandé une fois (nouvel identifiant). L'environnement du shell de connexion (`~/.zprofile` : PATH Homebrew, `CURSOR_API_KEY`…) est relu au lancement depuis le Finder.
 
 **Mises à jour** (depuis le dépôt git, sans `.dmg` ni signature Apple) :
 - Au démarrage (réglage « Mises à jour auto », activé par défaut) : `git fetch`, puis si des nouveautés existent `git pull --ff-only`, `npm install` seulement si `package.json`/`package-lock.json` ont changé, `npm run build`, et l'app redémarre toute seule. Décochable dans le menu de la barre de menus ou les réglages.
@@ -58,13 +60,13 @@ Ensuite : double-clic sur **Cursor Launcher** (Finder, Launchpad, Spotlight), ou
 - Les mises à jour s'exécutent via un shell de connexion (`/bin/zsh -l`) pour retrouver `git` et `npm` (Homebrew, nvm…).
 - Un `.dmg` installé (sans dépôt git) n'a pas ce mécanisme : le menu indique « indisponible ». Une mise à jour automatique d'un `.dmg` (electron-updater + GitHub Releases) exige une app **signée** par un compte Apple Developer payant, ce qui n'est pas en place.
 
-Attention : une app lancée depuis le Finder ne voit pas les variables définies dans `~/.zshrc` (ex. `CURSOR_API_KEY`). Saisissez la clé dans ⚙ → Clé API (stockée dans le Trousseau), ou exportez-la dans `~/.zprofile`.
+Attention : une app lancée depuis le Finder ne lit que `~/.zprofile` / `~/.zshenv` (shell de connexion), pas `~/.zshrc` : pour `CURSOR_API_KEY`, saisissez la clé dans ⚙ → Clé API (Trousseau) ou exportez-la dans `~/.zprofile`.
 
-**Icône de la barre de menus invisible** (l'app tourne pourtant : `Option+Espace` fonctionne). L'app ne dépend plus de cette icône :
-- **Quitter sans l'icône** : bouton ⏻ à droite de la barre de saisie, bouton « Quitter Cursor Launcher » dans ⚙, ou `⌘Q` quand la fenêtre est affichée (`Option+Espace`).
-- **Dock de secours** : si macOS masque l'icône (position hors écran, encoche, barre saturée), l'app s'ajoute d'elle-même au Dock (clic droit → Quitter) et le signale par une notification. À la main : ⚙ → « Afficher dans le Dock ».
-- **Icône plus repérable** : l'icône est embarquée dans le code (plus de fichier à retrouver) et affiche « Lanceur » à côté (décochable : ⚙ → « Nom dans la barre de menus »).
-- Si l'icône reste absente malgré tout : Réglages Système → **Barre des menus** → « Autoriser dans la barre des menus » (macOS 13+), ou libérer de la place (⌘ + glisser les autres icônes hors de la barre). Ce n'est plus nécessaire pour quitter.
+**Item de barre de menus invisible** (l'app tourne pourtant : `Option+Espace` fonctionne). L'app ne dépend plus de cet item :
+- **Titre texte « AlphaCris »** affiché à côté de l'icône (un texte n'est pas une image « template » que macOS peut rejeter) ; il est forcé si l'icône est jugée inutilisable (vide, taille 0). Décochable seulement quand l'icône est valide : ⚙ → « Nom dans la barre de menus ».
+- **Détection au démarrage** : si `tray.getBounds()` est vide ou hors écran (contrôle immédiat puis à 0,5 s, 1,5 s, 4 s), le Dock s'affiche **et** la fenêtre s'ouvre tout de suite avec l'explication. Un lancement manuel (double-clic) ouvre toujours la fenêtre ; seul le lancement à la connexion reste silencieux.
+- **Quitter sans l'item** : bouton ⏻ à droite de la barre de saisie, bouton « Quitter AlphaCris » dans ⚙, `⌘Q` fenêtre affichée (`Option+Espace`), clic droit sur l'icône du Dock → Quitter. À la main : ⚙ → « Afficher dans le Dock ».
+- L'item a maintenant sa propre identité (`app.lycapps.alphacris`) : une entrée « Electron » désactivée dans Réglages Système → Barre des menus ne s'applique plus. Si malgré tout il manque : même panneau → « Autoriser dans la barre des menus » → AlphaCris, ou libérer de la place (⌘ + glisser les autres icônes hors de la barre, surtout sous l'encoche).
 
 ### Clés API
 
@@ -169,11 +171,11 @@ L'app n'est pas sandboxée (nécessaire pour piloter fichiers et shell). Selon l
 | --- | --- | --- |
 | **Micro** | Première dictée (`NSMicrophoneUsageDescription`) | Réglages Système → Confidentialité et sécurité → Micro |
 | **Accès aux fichiers** (Bureau, Documents, Téléchargements, volumes externes) | Première lecture/écriture dans ces dossiers | Invite automatique, ou Confidentialité → Fichiers et dossiers |
-| **Accès complet au disque** | Si l'agent doit lire des dossiers protégés (Mail, Messages, Safari…) ou si les invites ci-dessus ne suffisent pas | Confidentialité → Accès complet au disque → ajouter Cursor Launcher |
+| **Accès complet au disque** | Si l'agent doit lire des dossiers protégés (Mail, Messages, Safari…) ou si les invites ci-dessus ne suffisent pas | Confidentialité → Accès complet au disque → ajouter AlphaCris |
 | **Accessibilité** | Pas requis par le MVP. Les raccourcis globaux utilisent `globalShortcut` (Carbon `RegisterEventHotKey`) qui n'exige pas cette permission. Nécessaire seulement si l'on ajoute plus tard du pilotage d'UI (AppleScript « System Events », saisie simulée) | Confidentialité → Accessibilité |
 | **Automatisation** | Si l'agent pilote d'autres apps via `osascript` (invite par app cible) | Confidentialité → Automatisation |
 
-En développement (`npm start`), c'est l'application **Electron** (ou votre Terminal) qui apparaît dans ces listes, pas « Cursor Launcher ».
+En développement (`npm start`), c'est l'application **Electron** (ou votre Terminal) qui apparaît dans ces listes, pas « AlphaCris ».
 
 ## Packaging `.dmg`
 
@@ -182,7 +184,7 @@ cd apps/launcher
 npm run dist         # build + electron-builder --mac dmg  → release/*.dmg (arm64 + x64)
 ```
 
-La configuration est dans `package.json` (`build`) : `LSUIElement` (pas de Dock), textes d'usage du micro et des dossiers, `hardenedRuntime`, entitlements (`build/entitlements.mac.plist` : micro, Apple Events, JIT pour V8). Sans certificat Apple Developer, l'app n'est pas signée : au premier lancement, clic droit → Ouvrir (ou `xattr -dr com.apple.quarantine "/Applications/Cursor Launcher.app"`). Pour distribuer proprement : variables `CSC_LINK` / `CSC_KEY_PASSWORD` (signature) et `APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` / `APPLE_TEAM_ID` (notarisation). Aucune icône d'application n'est fournie (icône Electron par défaut) : ajouter `build/icon.icns`.
+La configuration est dans `package.json` (`build`) : `LSUIElement` (pas de Dock), textes d'usage du micro et des dossiers, `hardenedRuntime`, entitlements (`build/entitlements.mac.plist` : micro, Apple Events, JIT pour V8). Sans certificat Apple Developer, l'app n'est pas signée : au premier lancement, clic droit → Ouvrir (ou `xattr -dr com.apple.quarantine "/Applications/AlphaCris.app"`). Pour distribuer proprement : variables `CSC_LINK` / `CSC_KEY_PASSWORD` (signature) et `APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` / `APPLE_TEAM_ID` (notarisation). Aucune icône d'application n'est fournie (icône Electron par défaut) : ajouter `build/icon.icns`.
 
 ## Architecture
 
@@ -226,7 +228,7 @@ Non testable depuis la VM Linux :
 
 - [ ] `Option+Espace` : raccourci global, éventuel conflit avec Spotlight/Alfred/clavier (changer dans les réglages), affichage au-dessus des apps en plein écran et sur tous les Spaces.
 - [ ] Pas d'icône Dock (`setActivationPolicy('accessory')` + `LSUIElement` dans le `.dmg`), icône « template » correcte en mode clair/sombre, menu de la barre de menus.
-- [ ] **Barre de menus** : icône embarquée + « Lanceur » visible ; si masquée, repli automatique sur le Dock (`tray.getBounds()` hors écran : heuristique non vérifiée sur Mac) ; `⌘Q`, bouton ⏻, bouton dans ⚙ et « Afficher dans le Dock » quittent bien l'app.
+- [ ] **Barre de menus** : icône template (32 px @2x, `createFromBuffer`) + titre « AlphaCris » visibles ; si masqués, Dock + fenêtre immédiats (`tray.getBounds()` vide/hors écran : heuristique non vérifiée sur Mac) ; `⌘Q`, bouton ⏻, bouton dans ⚙ et « Afficher dans le Dock » quittent bien l'app.
 - [ ] Prise de focus de la fenêtre depuis une autre app, masquage à la perte de focus, restitution du focus à l'app précédente (`app.hide()`).
 - [ ] Lancement au login (`setLoginItemSettings`, visible dans Réglages Système → Général → Éléments de connexion).
 - [ ] **Fournisseur Cursor** avec une vraie clé : un prompt avec appel d'outil (ex. « liste mon dossier Downloads »), confirmation affichée pour un shell, annulation (Échap), « Lister les modèles » et sélection d'un modèle Claude, mode dossier. Vérifier aussi que le modèle appelle bien nos outils `custom-user-tools` (et qu'aucun outil intégré Cursor n'est proposé), le chargement du SDK dans l'app packagée (`asarUnpack`, binaire darwin) et l'usage « SDK » dans le tableau de bord Cursor.
@@ -240,7 +242,7 @@ Non testable depuis la VM Linux :
 - [ ] `open -a` pour « ouvrir une app », Corbeille (`shell.trashItem`), invites d'accès aux dossiers Bureau/Documents/Téléchargements.
 - [ ] Trousseau : `safeStorage` (invite d'accès au Trousseau à la première utilisation, clé conservée entre deux lancements).
 - [ ] Conversation : mise en page (fenêtre 780×680), saisie multi-lignes avec dictée, cartes de question (boutons + saisie libre) et de confirmation avec une vraie clé Cursor : vérifier que le modèle appelle bien `ask_user` quand il manque une information, et que la mémoire de l'agent Cursor est conservée d'un message à l'autre.
-- [ ] `npm run app:install` : l'app « Cursor Launcher.app » se lance au double-clic (script shell comme exécutable, pas d'icône Dock en plus de celle d'Electron qui doit disparaître), au login, et le menu « Mettre à jour » fonctionne depuis cette app (PATH du shell de connexion, `git pull`, `npm install`, redémarrage automatique). Testé sur Linux avec un vrai dépôt distant : pull, compilation et relance automatique OK.
+- [ ] `npm run app:install` : l'app « AlphaCris.app » (copie d'Electron renommée, re-signée `codesign --sign -`) se lance au double-clic avec le bon nom dans le Dock/menu, au login, avec le PATH et les variables de `~/.zprofile`, et le menu « Mettre à jour » fonctionne depuis cette app (PATH du shell de connexion, `git pull`, `npm install`, redémarrage automatique). Testé sur Linux avec un vrai dépôt distant : pull, compilation et relance automatique OK.
 - [ ] Drag & drop d'un dossier depuis le Finder (`webUtils.getPathForFile`).
 - [ ] `npm run dist` : génération du `.dmg` arm64/x64, signature/notarisation.
 

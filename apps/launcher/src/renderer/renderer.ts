@@ -336,6 +336,7 @@ function onAgentEvent(e: AgentEventView): void {
   }
 }
 api.onAgentEvent(onAgentEvent);
+api.onNotice((text) => addMessage("note", text));
 
 /* Dossier */
 function setFolder(path: string | null): void {
@@ -753,7 +754,7 @@ async function startConversation(opts: { first?: string; greet?: boolean } = {})
     return void startWake();
   }
   if (!(await api.ensureMic())) {
-    setHint("Micro refusé : autorisez Cursor Launcher dans Réglages Système → Confidentialité → Micro.");
+    setHint("Micro refusé : autorisez AlphaCris dans Réglages Système → Confidentialité → Micro.");
     return void startWake();
   }
   try {
@@ -904,7 +905,7 @@ async function dictateOnce(): Promise<void> {
     setHint(NO_ENGINE);
     return void startWake();
   }
-  if (!(await api.ensureMic())) return setHint("Micro refusé : autorisez Cursor Launcher dans Réglages Système → Confidentialité → Micro.");
+  if (!(await api.ensureMic())) return setHint("Micro refusé : autorisez AlphaCris dans Réglages Système → Confidentialité → Micro.");
   try {
     await mic.open();
     voiceActive = true;
@@ -1075,7 +1076,7 @@ function openSettings(): void {
   };
   const showInDock = checkbox(s.showInDock);
   const trayLabel = checkbox(s.trayLabel);
-  const quitBtn = el("button", "danger", "Quitter Cursor Launcher");
+  const quitBtn = el("button", "danger", "Quitter AlphaCris");
   quitBtn.onclick = () => void api.quit();
   const sttEngine = el("select");
   for (const [v, l] of [["auto", "Automatique (local si installé, sinon clé API)"], ["local", "Local uniquement (Whisper, gratuit)"], ["api", "API uniquement (clé Whisper)"]] as const) {
@@ -1148,7 +1149,7 @@ function openSettings(): void {
     el("h2", "section", "Général"),
     field("Dossier des projets", projects),
     field("Lancer au démarrage", login),
-    field("Nom dans la barre de menus", trayLabel, "Affiche « Lanceur » à côté de l'icône pour la repérer plus facilement."),
+    field("Nom dans la barre de menus", trayLabel, "Affiche « AlphaCris » à côté de l'icône pour la repérer plus facilement."),
     field("Afficher dans le Dock", showInDock, "Secours si l'icône de la barre de menus reste invisible : clic droit sur l'icône du Dock → Quitter."),
     field("", quitBtn),
     field("Mises à jour auto", autoUpdate, "Vérifie au démarrage (git pull + compilation) et redémarre si une nouvelle version est installée."),
@@ -1244,7 +1245,9 @@ api.onShown(() => {
 
 async function init(): Promise<void> {
   state = await api.getState();
-  if (state.llmKeySource === "none" && state.settings.provider !== "ollama" && state.settings.provider !== "custom") {
+  if (state.secretsUnreadable && state.llmKeySource === "none") {
+    setHint("La clé enregistrée n'est plus lisible (autorisez l'accès au Trousseau si macOS le demande, ou ressaisissez-la dans ⚙ → Clé API).");
+  } else if (state.llmKeySource === "none" && state.settings.provider !== "ollama" && state.settings.provider !== "custom") {
     setHint("Aucune clé API : ouvrez les réglages (⚙) ou définissez CURSOR_API_KEY.");
   }
   promptEl.focus();

@@ -73,6 +73,7 @@ const type = (text, meta = false) => ev(`(() => { const p = document.getElementB
 const text = (sel) => ev(`[...document.querySelectorAll(${JSON.stringify(sel)})].map(e => e.innerText).join('\\n')`);
 const click = (sel, label) => ev(`[...document.querySelectorAll(${JSON.stringify(sel)})].find(b => ${JSON.stringify(label)} === '' || b.textContent.includes(${JSON.stringify(label)})).click()`);
 
+check("titre de fenêtre AlphaCris", await ev("document.title") === "AlphaCris" && (await ev("document.querySelector('.brand').textContent")).includes("AlphaCris"));
 check("mode compact au départ", await ev("document.getElementById('card').classList.contains('compact')"));
 await shot("0-compact");
 

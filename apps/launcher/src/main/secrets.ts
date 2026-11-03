@@ -22,6 +22,11 @@ export class KeychainSecrets implements SecretStore {
     return safeStorage.isEncryptionAvailable();
   }
 
+  /** Des secrets sont enregistrés mais le trousseau ne sait plus les déchiffrer (autre identité d'app, accès refusé). */
+  hasUnreadable(): boolean {
+    return this.available() && Object.keys(this.data).some((k) => this.get(k) === undefined);
+  }
+
   get(name: string): string | undefined {
     const enc = this.data[name];
     if (!enc || !this.available()) return undefined;
