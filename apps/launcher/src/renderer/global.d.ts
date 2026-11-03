@@ -1,0 +1,153 @@
+interface LauncherState {
+  settings: {
+    shortcut: string;
+    dictationShortcut: string;
+    provider: string;
+    baseUrl: string;
+    model: string;
+    transcriptionModel: string;
+    transcriptionBaseUrl: string;
+    allowedRoots: string[];
+    projectsRoot: string;
+    launchAtLogin: boolean;
+    autoUpdate: boolean;
+    showInDock: boolean;
+    trayLabel: boolean;
+    greetOnLaunch: boolean;
+    speakReplies: boolean;
+    ttsVoice: string;
+    ttsRate: number;
+    ttsEngine: "auto" | "piper" | "say";
+    piperBin: string;
+    piperModel: string;
+    sttEngine: "auto" | "local" | "api";
+    whisperBin: string;
+    whisperModel: string;
+    voiceConfirm: boolean;
+    wakeWordEnabled: boolean;
+    wakePhrase: string;
+    followUpSeconds: number;
+    themeAccent: string;
+    themeAccent2: string;
+    themeBackground: string;
+    themeGlass: number;
+    themeBorder: number;
+  };
+  history: string[];
+  llmKeySource: "env" | "keychain" | "none";
+  hasTranscriptionKey: boolean;
+  secretsAvailable: boolean;
+  secretsUnreadable: boolean;
+  defaults: { baseUrl: string; model: string };
+  providers: Array<{ id: string; label: string; baseUrl: string; defaultModel: string }>;
+  platform: string;
+}
+
+interface PlanMove {
+  from: string;
+  to: string;
+  fromRel: string;
+  toRel: string;
+}
+
+interface PlanView {
+  folder: string;
+  summary: string;
+  moves: PlanMove[];
+  skipped: Array<{ name: string; reason: string }>;
+}
+
+interface ApplyView {
+  moved: Array<{ from: string; to: string }>;
+  failed: Array<{ from: string; reason: string }>;
+}
+
+type AgentEventView =
+  | { type: "tool_call"; name: string; args: Record<string, unknown> }
+  | { type: "tool_result"; name: string; ok: boolean; output: string }
+  | { type: "progress"; text: string }
+  | { type: "message"; text: string }
+  | { type: "error"; text: string };
+
+interface ConfirmView {
+  id: string;
+  title: string;
+  detail: string;
+  risk: "info" | "confirm" | "danger";
+}
+
+type UpdateStatusView =
+  | { state: "unavailable"; reason: string }
+  | { state: "up-to-date"; version: string }
+  | { state: "available"; behind: number; version: string; subjects: string[] };
+
+interface UpdateView {
+  busy: string | null;
+  status: UpdateStatusView | null;
+}
+
+interface AskView {
+  id: string;
+  question: string;
+  choices: string[];
+  allowText: boolean;
+}
+
+interface VoiceStatusView {
+  local: { ready: boolean; detail: string };
+  api: boolean;
+  engine: "auto" | "local" | "api";
+  voices: string[];
+  speech: boolean;
+  tts: { engine: "piper" | "say"; detail: string };
+}
+
+interface LauncherApi {
+  getState(): Promise<LauncherState>;
+  updateSettings(patch: Partial<LauncherState["settings"]>): Promise<{ state: LauncherState; errors: string[] }>;
+  setSecret(name: "llm" | "transcription", value: string | null): Promise<{ state: LauncherState; error: string | null }>;
+  runPrompt(prompt: string, opts?: { voice?: boolean }): Promise<{ ok: boolean; text: string }>;
+  listModels(): Promise<{ ok: true; models: Array<{ id: string; displayName: string }> } | { ok: false; error: string }>;
+  cancel(): Promise<void>;
+  clearHistory(): Promise<string[]>;
+  pickFolder(): Promise<string | null>;
+  addAllowedFolder(): Promise<LauncherState>;
+  pathForFile(file: File): string;
+  planFolder(folder: string, prompt: string, preset: "type" | "prompt"): Promise<{ ok: true; id: string; plan: PlanView } | { ok: false; error: string }>;
+  applyPlan(id: string, selected: string[]): Promise<{ ok: true; result: ApplyView } | { ok: false; error: string }>;
+  undoOrganize(): Promise<{ ok: true; result: ApplyView } | { ok: false; error: string }>;
+  ensureMic(): Promise<boolean>;
+  transcribe(audio: ArrayBuffer, mime: string, opts?: { localOnly?: boolean }): Promise<{ ok: true; text: string } | { ok: false; error: string }>;
+  voiceStatus(): Promise<VoiceStatusView>;
+  speak(text: string): Promise<{ ok: boolean; error?: string }>;
+  stopSpeech(): Promise<void>;
+  parseVoice(kind: "confirm", text: string): Promise<"yes" | "no">;
+  parseVoice(kind: "choice", text: string, choices: string[]): Promise<number>;
+  parseVoice(kind: "end", text: string): Promise<boolean>;
+  parseVoice(kind: "wake", text: string, phrase: string): Promise<{ matched: boolean; rest: string }>;
+  wake(): Promise<void>;
+  onHidden(cb: () => void): () => void;
+  answerConfirm(id: string, ok: boolean): Promise<void>;
+  answerAsk(id: string, answer: string | null): Promise<void>;
+  resetConversation(): Promise<void>;
+  getUpdate(): Promise<UpdateView>;
+  runUpdate(): Promise<UpdateView>;
+  openLink(url: string): Promise<void>;
+  hide(): Promise<void>;
+  quit(): Promise<void>;
+  reload(): Promise<{ ok: boolean; error?: string }>;
+  greeting(): Promise<{ text: string } | null>;
+  onReload(cb: (e: { text: string; error: boolean }) => void): () => void;
+  onShown(cb: () => void): () => void;
+  onSettings(cb: (state: LauncherState) => void): () => void;
+  onToggleDictation(cb: () => void): () => void;
+  onNotice(cb: (text: string) => void): () => void;
+  onOpenSettings(cb: () => void): () => void;
+  onAsk(cb: (req: AskView) => void): () => void;
+  onConfirm(cb: (req: ConfirmView) => void): () => void;
+  onAgentEvent(cb: (e: AgentEventView) => void): () => void;
+}
+
+interface Window {
+  launcher: LauncherApi;
+}

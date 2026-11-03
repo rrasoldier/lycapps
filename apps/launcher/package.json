@@ -1,0 +1,68 @@
+{
+  "name": "cursor-launcher",
+  "productName": "Cursor Launcher",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lanceur global façon Alfred/Raycast pour piloter son Mac avec un agent IA (texte ou voix).",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.main.json && tsc -p tsconfig.renderer.json && node scripts/copy-assets.mjs",
+    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
+    "test": "vitest run",
+    "e2e:linux": "node scripts/e2e-smoke.mjs",
+    "start": "npm run build && electron .",
+    "dev": "node scripts/dev.mjs",
+    "app:install": "bash scripts/install-mac-app.sh",
+    "voice:install": "bash scripts/install-voice.sh",
+    "tts:install": "bash scripts/install-tts.sh",
+    "e2e:voice": "node scripts/e2e-voice.mjs",
+    "e2e:reload": "node scripts/e2e-reload.mjs",
+    "dist": "npm run build && electron-builder --mac dmg"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "electron": "^38.8.6",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "build": {
+    "appId": "app.lycapps.alphacris",
+    "productName": "AlphaCris",
+    "files": [
+      "dist/**/*",
+      "resources/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "LSUIElement": true,
+        "NSMicrophoneUsageDescription": "AlphaCris utilise le micro pour la dictée vocale.",
+        "NSAppleEventsUsageDescription": "AlphaCris peut ouvrir et piloter des applications à votre demande.",
+        "NSDocumentsFolderUsageDescription": "AlphaCris lit et range les fichiers que vous autorisez.",
+        "NSDesktopFolderUsageDescription": "AlphaCris lit et range les fichiers que vous autorisez.",
+        "NSDownloadsFolderUsageDescription": "AlphaCris lit et range les fichiers que vous autorisez."
+      }
+    },
+    "asarUnpack": [
+      "node_modules/@cursor/**/*"
+    ]
+  },
+  "dependencies": {
+    "@cursor/sdk": "^1.2.0"
+  }
+}

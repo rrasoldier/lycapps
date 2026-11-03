@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Sous-projet indépendant (Electron), avec sa propre toolchain.
+    "apps/**",
   ]),
 ]);
 
