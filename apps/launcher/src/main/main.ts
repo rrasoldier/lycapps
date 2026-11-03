@@ -26,6 +26,7 @@ import { cleanTranscript, interpretConfirmation, isEndPhrase, matchChoice, match
 import { importLoginEnv } from "./loginEnv";
 import { KeychainSecrets } from "./secrets";
 import { createTrayIcon } from "./trayIcon";
+import { PiperTts } from "./piper";
 import { createSpeaker, listVoices, resolveVoice } from "./speech";
 
 const WIDTH = 780;
@@ -36,7 +37,8 @@ let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let quitting = false;
 let dialogOpen = false;
-const speaker = createSpeaker();
+const tts = new PiperTts(() => settingsStore.get());
+const speaker = createSpeaker(tts.start);
 const pendingConfirms = new Map<string, (ok: boolean) => void>();
 const pendingAsks = new Map<string, (answer: string | null) => void>();
 
@@ -413,11 +415,16 @@ function registerIpc(): void {
       return { ok: false, error: errorMessage(err) };
     }
   });
-  ipcMain.handle("voice:status", async () => ({
-    ...(await service.sttStatus()),
-    voices: (await listVoices()).filter((v) => v.locale.startsWith("fr")).map((v) => v.name),
-    speech: process.platform === "darwin" || Boolean(process.env.LAUNCHER_SAY),
-  }));
+  ipcMain.handle("voice:status", async () => {
+    const ttsStatus = await tts.status();
+    if (ttsStatus.engine === "piper") tts.warmUp();
+    return {
+      ...(await service.sttStatus()),
+      voices: (await listVoices()).filter((v) => v.locale.startsWith("fr")).map((v) => v.name),
+      speech: ttsStatus.engine === "piper" || process.platform === "darwin" || Boolean(process.env.LAUNCHER_SAY),
+      tts: ttsStatus,
+    };
+  });
   ipcMain.handle("voice:speak", (_e, text: string) => speak(typeof text === "string" ? text : ""));
   ipcMain.handle("voice:stop", () => speaker.stop());
   ipcMain.handle("voice:parse", (_e, kind: string, text: string, arg?: unknown) => {
@@ -624,6 +631,7 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.on("will-quit", () => {
     speaker.stop();
+    tts.dispose();
     globalShortcut.unregisterAll();
   });
   app.on("window-all-closed", () => {

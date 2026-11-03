@@ -26,8 +26,8 @@ export function startSay(sentence: string, voice: string | undefined, rate: numb
   };
 }
 
-export function createSpeaker(): Speaker {
-  return new Speaker(startSay);
+export function createSpeaker(start: (sentence: string, voice: string | undefined, rate: number | undefined) => SpeechHandle = startSay): Speaker {
+  return new Speaker(start);
 }
 
 export function listVoices(): Promise<SystemVoice[]> {

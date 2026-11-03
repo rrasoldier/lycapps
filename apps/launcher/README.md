@@ -134,7 +134,7 @@ Inspirée de [jarvis-assistant-vocal](https://github.com/sosoj92/jarvis-assistan
 | Mots d'arrêt | « merci, c'est tout », « stop », « à bientôt »… (`isEndPhrase`) |
 | Filtre des hallucinations de Whisper | `cleanTranscript` : retire `[musique]`, « Sous-titres réalisés par… », « Merci d'avoir regardé » |
 | Réponses courtes à l'oral | Préfixe « mode vocal » (1 à 3 phrases) envoyé à l'agent ; `plainForSpeech` retire Markdown, liens, emojis ; tableaux et code restent à l'écran |
-| Synthèse phrase par phrase, interruptible | `say` du Mac, une phrase à la fois : `Échap` ou clic sur 🎙 coupe net |
+| Synthèse phrase par phrase, interruptible | Voix neuronale **Piper** (locale, gratuite) si installée, sinon `say` du Mac ; une phrase à la fois : `Échap` ou clic sur 🎙 coupe net |
 | Confirmation orale stricte | « oui » explicite requis ; « non », « attends », un doute ou un silence valent refus (`interpretConfirmation`) |
 | Mot d'activation | Écoute locale + Whisper + comparaison floue (pas le modèle openWakeWord de Jarvis : voir limites) |
 
@@ -148,11 +148,34 @@ npm run voice:install -- base    # variante plus légère/rapide (~150 Mo)
 
 Puis relancer l'app. Sans cette installation, la voix utilise une clé Whisper (API) si elle existe. Moteur réglable : réglages → Voix → « Moteur de dictée » (automatique : local si installé, sinon API).
 
+### Une voix de qualité (Piper, gratuit, local)
+
+La voix `say` du Mac est correcte mais mécanique. Jarvis (jarvis-assistant-vocal) utilise **Piper** pour son mode local, avec la voix française `fr_FR-siwis`, après avoir comparé Kokoro (une seule voix française, qualité moyenne) : on reprend ce choix. Piper est une voix neuronale qui tourne sur le CPU (temps réel, y compris sur Mac sans GPU), sans clé ni abonnement ni connexion une fois installée.
+
+```bash
+cd apps/launcher
+npm run tts:install                        # Piper + voix française fr_FR-siwis-medium (~65 Mo), puis une phrase d'essai
+npm run tts:install -- fr_FR-upmc-medium   # autre voix du catalogue rhasspy/piper-voices (voir ci-dessous)
+```
+
+Le script crée un environnement Python isolé dans `~/.cursor-launcher/piper` (Python 3.9+ ; sinon `xcode-select --install` ou `brew install python`) et télécharge la voix dans `~/.cursor-launcher/voices`. Puis relancer l'app : **rien d'autre à régler**, le moteur « Automatique » prend Piper dès qu'il est installé et garde `say` sinon.
+
+Réglages → Voix :
+- **Moteur de voix** : Automatique (Piper si installé), Piper (seul : l'état affiche pourquoi il n'est pas utilisable) ou Voix du Mac.
+- **État de la voix** : dit quel moteur parle réellement et ce qui manque, le cas échéant.
+- **Débit (mots/min)** : commun aux deux moteurs (185 = voix naturelle ; converti en durée des phonèmes pour Piper).
+- **Voix Piper (.onnx)** et **Python / binaire Piper** : chemins personnalisés (ex. une autre voix déposée dans `~/.cursor-launcher/voices`, ou le `piper` d'un autre emplacement). Laisser vide pour la détection automatique (voix `fr_FR-siwis-medium`, sinon la première voix française, sinon la première voix trouvée).
+- **Voix du Mac (repli)** : voix `say` utilisée si Piper n'est pas installé ou échoue.
+
+Fonctionnement : un processus Piper reste ouvert pendant la conversation (le modèle n'est chargé qu'une fois ; il s'arrête après 5 minutes d'inactivité et à la fermeture de l'app), chaque phrase produit un petit fichier WAV temporaire lu par `afplay` puis supprimé. Si Piper plante ou ne répond pas, la phrase est dite avec `say` et Piper est écarté jusqu'au prochain changement de réglages : la conversation n'est jamais bloquée.
+
+**Licences** : Piper (paquet `piper-tts`, https://github.com/OHF-Voice/piper1-gpl) est en **GPL-3.0** ; il n'est ni embarqué ni lié à l'application, seulement installé à part et lancé comme programme externe (aucun de ses fichiers n'est dans ce dépôt). Les voix ont chacune leur licence (fiche `MODEL_CARD` à côté de chaque voix sur https://huggingface.co/rhasspy/piper-voices) : `fr_FR-siwis` est en **CC-BY 4.0** (usage libre, y compris commercial, avec mention de la base SIWIS de l'université d'Édimbourg, voir `THIRD_PARTY_NOTICES.md`) ; `fr_FR-upmc` est en CC-BY-SA 4.0 ; `fr_FR-tom` est en AGPL-3.0 : à éviter si l'app est redistribuée.
+
 **Utiliser** : cliquer 🎙 (ou `Option+Maj+Espace`), parler, attendre la réponse lue ; on peut enchaîner sans recliquer. Quand l'agent demande une confirmation, il la lit et attend « oui » ou « non » (ou un clic) ; quand il pose une question à choix, répondre « le deuxième » ou le nom de l'option. Les actions **dangereuses** (rouge : `rm -r`, `sudo`, Corbeille…) ne se valident **qu'au clic**. Réglages → Voix : lire aussi les réponses tapées, voix et débit du Mac, confirmations orales, durée d'écoute après réponse.
 
 **Mot d'activation (expérimental, désactivé par défaut)** : réglages → Voix → « Mot d'activation » (par défaut « hey cursor »). Le micro écoute en permanence, **sans jamais envoyer d'audio hors du Mac** : seul Whisper local est utilisé, même si le moteur est réglé sur « API ». Coût : un peu de CPU à chaque phrase entendue ; l'indicateur micro de macOS reste allumé. Dire « hey cursor, range mon dossier Téléchargements » ouvre la fenêtre et lance la demande.
 
-**Sécurité inchangée** : la voix ne contourne rien. Le périmètre de dossiers s'applique, chaque action sensible passe par la même confirmation (à la voix ou au clic), et l'audio n'est conservé que le temps de la transcription (fichier temporaire 0600 supprimé aussitôt). Avec l'API Whisper, l'audio de la phrase part chez le fournisseur ; avec Whisper local, rien ne quitte le Mac. La voix de Cursor n'est pas réutilisable (aucune API) : on utilise les voix du Mac.
+**Sécurité inchangée** : la voix ne contourne rien. Le périmètre de dossiers s'applique, chaque action sensible passe par la même confirmation (à la voix ou au clic), et l'audio n'est conservé que le temps de la transcription (fichier temporaire 0600 supprimé aussitôt). Avec l'API Whisper, l'audio de la phrase part chez le fournisseur ; avec Whisper local, rien ne quitte le Mac. La voix de Cursor n'est pas réutilisable (aucune API) : on utilise Piper (local) ou les voix du Mac.
 
 ## Modèle de sécurité
 
@@ -201,7 +224,7 @@ src/core/        Logique pure, sans Electron (testée)
   transcribe.ts    Whisper via API (multipart /audio/transcriptions)
   whisper.ts       Whisper local (whisper.cpp) : détection du binaire/modèle, transcription
   voice.ts         Voix pure : texte → oral, voix du Mac, oui/non, choix, mot d'activation, filtre Whisper
-src/main/        Processus principal Electron : fenêtre, tray, raccourcis, IPC, trousseau (safeStorage), synthèse vocale (`say`)
+src/main/        Processus principal Electron : fenêtre, tray, raccourcis, IPC, trousseau (safeStorage), synthèse vocale (Piper, `say` en repli)
 src/preload/     Pont contextBridge minimal (API typée, pas d'accès Node)
 src/renderer/    UI (HTML/CSS/TS sans framework) : barre de prompt, aperçu de plan, confirmations, réglages ; audio.ts (VAD, WAV), voice.ts (micro)
 test/            Tests Vitest
@@ -235,6 +258,7 @@ Non testable depuis la VM Linux :
 - [ ] **Voix** (rien de cela n'a pu être essayé sur un vrai Mac) :
   - `npm run voice:install` (Homebrew, modèle) puis un 🎙 : invite micro macOS, `AudioContext` 16 kHz + `ScriptProcessor` dans Electron macOS, seuils de détection avec le vrai micro (trop sensible / trop sourd ? voir `src/renderer/audio.ts`), précision de Whisper `small` en français.
   - Synthèse `say` : voix française choisie automatiquement (Amélie/Thomas/Audrey si installées), débit 185, coupure avec `Échap`.
+  - `npm run tts:install` : `python3 -m venv` + `pip install piper-tts` avec le Python du Mac (3.9 des outils Xcode), wheel `macosx_11_0_arm64`/`x86_64`, puis phrase d'essai jouée par `afplay` ; qualité de la voix `siwis` à l'oreille ; latence de la première phrase (chargement du modèle) et enchaînement entre phrases.
   - Écho : la parole de l'assistant ne doit pas être reprise par le micro (l'écoute ne reprend que 250 ms après la fin de la phrase ; à tester sur haut-parleurs de MacBook).
   - Confirmation orale « oui »/« non » sur une vraie commande shell ; vérifier qu'une action rouge n'est validable qu'au clic.
   - Mot d'activation « hey cursor » : taux de reconnaissance, faux déclenchements, consommation CPU, fenêtre cachée (`backgroundThrottling: false`).
@@ -253,5 +277,5 @@ Non testable depuis la VM Linux :
 - Le rendu Markdown est volontairement minimal (pas d'images, pas de HTML, liens `http(s)`/`mailto` seulement).
 - Mode dossier non récursif ; l'annulation ne couvre que le dernier rangement de la session.
 - Pas de pilotage d'UI (clics, saisie) ni de lecture d'écran : prévu après validation du MVP.
-- Voix : pas d'interruption à la voix pendant que l'assistant parle (écoute coupée pendant la réponse, anti-écho) : `Échap`/clic pour couper ; transcription par phrase complète (pas de streaming) donc 1 à 3 s de latence avec Whisper `small` ; le mot d'activation passe par une transcription et non par un modèle dédié (openWakeWord, utilisé par Jarvis, est sous licence CC-BY-NC-SA : non commerciale, non reprise) donc moins précis et plus gourmand ; voix du Mac (`say`) uniquement, la dictée macOS native et la Web Speech API ne sont pas utilisées (Chromium sans clés Google).
+- Voix : pas d'interruption à la voix pendant que l'assistant parle (écoute coupée pendant la réponse, anti-écho) : `Échap`/clic pour couper ; transcription par phrase complète (pas de streaming) donc 1 à 3 s de latence avec Whisper `small` ; le mot d'activation passe par une transcription et non par un modèle dédié (openWakeWord, utilisé par Jarvis, est sous licence CC-BY-NC-SA : non commerciale, non reprise) donc moins précis et plus gourmand ; voix Piper (siwis, voix unique, ton neutre, pas de contrôle d'émotion) ou `say` en repli, la dictée macOS native et la Web Speech API ne sont pas utilisées (Chromium sans clés Google).
 - Pas de tests automatisés de l'UI macOS native ni de CI dédiée.

@@ -16,6 +16,9 @@ interface LauncherState {
     speakReplies: boolean;
     ttsVoice: string;
     ttsRate: number;
+    ttsEngine: "auto" | "piper" | "say";
+    piperBin: string;
+    piperModel: string;
     sttEngine: "auto" | "local" | "api";
     whisperBin: string;
     whisperModel: string;
@@ -90,6 +93,7 @@ interface VoiceStatusView {
   engine: "auto" | "local" | "api";
   voices: string[];
   speech: boolean;
+  tts: { engine: "piper" | "say"; detail: string };
 }
 
 interface LauncherApi {

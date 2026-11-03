@@ -34,3 +34,11 @@ le code est une réécriture originale en TypeScript. La licence d'origine est r
 - whisper.cpp (MIT) — https://github.com/ggml-org/whisper.cpp, installé par Homebrew (`brew install whisper-cpp`).
 - Modèles Whisper au format ggml — poids publiés par OpenAI sous licence MIT, téléchargés depuis Hugging Face par `npm run voice:install`.
 - `say` : synthèse vocale intégrée à macOS.
+
+## Piper et la voix fr_FR-siwis (installés à part, non redistribués)
+
+`npm run tts:install` télécharge, sur la machine de l'utilisateur, le programme Piper (`piper-tts`, GPL-3.0-or-later,
+https://github.com/OHF-Voice/piper1-gpl) et la voix française `fr_FR-siwis-medium` du catalogue
+https://huggingface.co/rhasspy/piper-voices. Aucun fichier de Piper ni de la voix n'est inclus dans ce dépôt : Piper est
+lancé comme un programme externe. La voix est entraînée sur la base SIWIS (University of Edinburgh, CC-BY 4.0,
+https://datashare.is.ed.ac.uk/handle/10283/2353) : attribution requise en cas de redistribution de la voix.

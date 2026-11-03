@@ -22,6 +22,12 @@ export interface Settings {
   speakReplies: boolean;
   ttsVoice: string;
   ttsRate: number;
+  /** Moteur de voix : Piper (neuronale, locale, gratuite) s'il est installé, sinon `say` (voix du Mac). */
+  ttsEngine: "auto" | "piper" | "say";
+  /** Interpréteur Python (ou binaire `piper`) à utiliser. Vide = ~/.cursor-launcher/piper/venv. */
+  piperBin: string;
+  /** Voix Piper (.onnx). Vide = première voix française de ~/.cursor-launcher/voices. */
+  piperModel: string;
   /** Moteur de transcription : local (whisper.cpp), api (Whisper compatible OpenAI) ou auto (local si installé). */
   sttEngine: "auto" | "local" | "api";
   whisperBin: string;
@@ -52,6 +58,9 @@ export function defaultSettings(home = os.homedir()): Settings {
     speakReplies: false,
     ttsVoice: "",
     ttsRate: 185,
+    ttsEngine: "auto",
+    piperBin: "",
+    piperModel: "",
     sttEngine: "auto",
     whisperBin: "",
     whisperModel: "",

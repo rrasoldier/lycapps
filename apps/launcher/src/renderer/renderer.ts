@@ -1083,6 +1083,13 @@ function openSettings(): void {
     sttEngine.add(new Option(l, v, false, v === s.sttEngine));
   }
   const sttStatusLine = el("div", "update-info", "Vérification…");
+  const ttsEngine = el("select");
+  for (const [v, l] of [["auto", "Automatique (Piper si installé, sinon voix du Mac)"], ["piper", "Piper (voix neuronale locale, gratuite)"], ["say", "Voix du Mac (say)"]] as const) {
+    ttsEngine.add(new Option(l, v, false, v === s.ttsEngine));
+  }
+  const ttsStatusLine = el("div", "update-info", "Vérification…");
+  const piperModel = textInput(s.piperModel, "~/.cursor-launcher/voices/fr_FR-siwis-medium.onnx (détectée automatiquement)");
+  const piperBin = textInput(s.piperBin, "~/.cursor-launcher/piper/venv/bin/python3 (détecté automatiquement)");
   const voiceSelect = el("select");
   voiceSelect.add(new Option("Automatique (voix française du Mac)", "", false, !s.ttsVoice));
   if (s.ttsVoice) voiceSelect.add(new Option(s.ttsVoice, s.ttsVoice, false, true));
@@ -1096,6 +1103,7 @@ function openSettings(): void {
   const whisperModel = textInput(s.whisperModel, "~/.cursor-launcher/models/ggml-small.bin");
   void refreshVoiceStatus().then((v) => {
     sttStatusLine.textContent = `Whisper local : ${v.local.ready ? "prêt" : "non prêt"} — ${v.local.detail}. Clé API : ${v.api ? "disponible" : "absente"}. Voix du Mac : ${v.speech ? "disponible" : "indisponible (macOS requis)"}.`;
+    ttsStatusLine.textContent = `${v.tts.engine === "piper" ? "Voix actuelle : Piper." : "Voix actuelle : voix du Mac."} ${v.tts.detail}`;
     for (const name of v.voices) if (name !== s.ttsVoice) voiceSelect.add(new Option(name, name));
   });
   const updateInfo = el("div", "update-info", "Vérification…");
@@ -1138,12 +1146,16 @@ function openSettings(): void {
     field("Moteur de dictée", sttEngine),
     field("État", sttStatusLine, "Installation gratuite et locale : cd apps/launcher && npm run voice:install"),
     field("Lire les réponses", speakReplies, "Même quand vous écrivez (la conversation vocale lit toujours les réponses)."),
-    field("Voix", voiceSelect),
+    field("Moteur de voix", ttsEngine),
+    field("État de la voix", ttsStatusLine, "Voix de qualité, gratuite et locale : cd apps/launcher && npm run tts:install"),
+    field("Voix du Mac (repli)", voiceSelect, "Utilisée si Piper n'est pas installé ou échoue."),
     field("Débit (mots/min)", ttsRate),
     field("Confirmer à la voix", voiceConfirm, "« oui / non » à l'oral pour les confirmations ordinaires. Les actions sensibles restent à valider au clic."),
     field("Mot d'activation", wakeEnabled, "Expérimental : micro à l'écoute en permanence, transcription 100 % locale (Whisper requis)."),
     field("Phrase", wakePhrase, "Ex. « hey cursor »."),
     field("Écoute après réponse (s)", followUp, "Durée pendant laquelle l'assistant attend une suite sans que vous ayez à relancer."),
+    field("Voix Piper (.onnx)", piperModel),
+    field("Python / binaire Piper", piperBin),
     field("Binaire Whisper", whisperBin),
     field("Modèle Whisper", whisperModel),
     el("h2", "section", "Général"),
@@ -1215,6 +1227,9 @@ function openSettings(): void {
       trayLabel: trayLabel.checked,
       sttEngine: sttEngine.value as LauncherState["settings"]["sttEngine"],
       speakReplies: speakReplies.checked,
+      ttsEngine: ttsEngine.value as LauncherState["settings"]["ttsEngine"],
+      piperModel: piperModel.value.trim(),
+      piperBin: piperBin.value.trim(),
       ttsVoice: voiceSelect.value,
       ttsRate: Math.min(400, Math.max(80, Number.parseInt(ttsRate.value, 10) || 185)),
       voiceConfirm: voiceConfirm.checked,
