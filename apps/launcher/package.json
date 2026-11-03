@@ -12,6 +12,8 @@
     "e2e:linux": "node scripts/e2e-smoke.mjs",
     "start": "npm run build && electron .",
     "app:install": "bash scripts/install-mac-app.sh",
+    "voice:install": "bash scripts/install-voice.sh",
+    "e2e:voice": "node scripts/e2e-voice.mjs",
     "dist": "npm run build && electron-builder --mac dmg"
   },
   "devDependencies": {

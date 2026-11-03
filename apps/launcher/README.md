@@ -7,7 +7,7 @@ Lanceur global pour Mac, façon Alfred / Raycast, qui donne accès à un agent I
 - **Interface de conversation** : fil de discussion avec bulles, réponses formatées en Markdown (titres, listes, tableaux, code, liens), étapes de l'agent visibles, confirmations intégrées au fil, mémoire de la conversation. L'agent peut vous **poser des questions** (`ask_user`) auxquelles on répond **par boutons ou par texte**.
 - **Agent** avec outils : lister / lire / écrire / déplacer des fichiers, Corbeille, commande shell, ouvrir une app ou une URL, créer un projet.
 - **Mode dossier** : glisser-déposer (ou 📁) un dossier + une consigne → aperçu du plan → confirmation → application → annulation possible.
-- **Voix** : bouton micro (clic = bascule, maintien = push-to-talk) et raccourci global de dictée (défaut `Option+Maj+Espace`). Transcription via Whisper (API compatible OpenAI).
+- **Voix** : conversation parlée (écoute → transcription → agent → réponse lue → suite sans relancer), 100 % gratuite et locale possible (Whisper local + voix du Mac), mot d'activation optionnel, confirmations « oui / non » à l'oral. Voir [« Conversation vocale »](#conversation-vocale).
 - **Sécurité** : périmètre de dossiers autorisés, confirmation pour tout shell / déplacement / écrasement / suppression, aucune clé en dur.
 
 > Statut : MVP développé et testé sur Linux (logique + application Electron sous Xvfb). Le rendu et les intégrations macOS natives (raccourci global, Dock, tray, micro, `.dmg`) sont à valider sur un vrai Mac — voir [« À vérifier sur Mac »](#à-vérifier-sur-mac).
@@ -109,7 +109,7 @@ Limites propres à Cursor :
 | Ranger un dossier | Glisser le dossier sur la fenêtre (ou 📁), taper la consigne (« range par année puis par type ») puis `Entrée` pour l'aperçu. `⌘Entrée` = rangement par type **sans IA**. |
 | Répondre à l'agent | Quand l'agent a besoin d'une précision, une carte apparaît dans le fil : cliquer un bouton (ou touche `1`–`9` quand le champ est vide) ou écrire sa réponse dans la barre de prompt. `Échap` refuse de répondre et interrompt la demande. |
 | Suivre l'avancement | Pendant une demande : barre animée, temps écoulé, nombre d'actions et étape en cours (« Lit … », « Exécute : … », « ⏸ En attente de votre confirmation »). Le pourcentage réel n'est pas connaissable (nombre d'étapes inconnu) : la barre est donc indéterminée. `Échap` annule. |
-| Dicter | Cliquer 🎙 (re-cliquer ou `Échap` pour terminer), ou maintenir le bouton (push-to-talk), ou `Option+Maj+Espace` depuis n'importe où. Le texte transcrit est ajouté à la barre de prompt, à relire avant `Entrée`. |
+| Parler | Cliquer 🎙 ou `Option+Maj+Espace` depuis n'importe où : conversation vocale ([détails](#conversation-vocale)). `Maj`+clic sur 🎙 = dictée simple (le texte est placé dans la barre, à relire avant `Entrée`). `Échap` ou re-clic termine. |
 
 ### Mode dossier
 
@@ -119,6 +119,37 @@ Limites propres à Cursor :
 4. **Annuler ce rangement** remet les fichiers en place (et retire les sous-dossiers devenus vides).
 
 Portée : fichiers du premier niveau (hors fichiers cachés et sous-dossiers), 500 fichiers max. Le plan « IA » n'envoie au fournisseur que les **noms, tailles et dates** — jamais le contenu. Aucune suppression ni renommage.
+
+### Conversation vocale
+
+Inspirée de [jarvis-assistant-vocal](https://github.com/sosoj92/jarvis-assistant-vocal) (licence **MIT**, voir `THIRD_PARTY_NOTICES.md`) : ce dépôt est en Python/Windows, aucun code n'a été copié ; on reprend les idées et on les réécrit en TypeScript pour Electron/macOS.
+
+| Idée de Jarvis | Ce qu'on en a fait |
+| --- | --- |
+| Détection de parole par énergie, auto-calibrée sur le bruit ambiant | `src/renderer/audio.ts` : seuils calés sur le bruit de la pièce, fin de phrase après ~1,1 s de silence, claquements ignorés |
+| Écoute de suite sans répéter le mot d'activation | Après chaque réponse, le micro reste ouvert `followUpSeconds` (8 s) ; silence = fin de conversation |
+| Mots d'arrêt | « merci, c'est tout », « stop », « à bientôt »… (`isEndPhrase`) |
+| Filtre des hallucinations de Whisper | `cleanTranscript` : retire `[musique]`, « Sous-titres réalisés par… », « Merci d'avoir regardé » |
+| Réponses courtes à l'oral | Préfixe « mode vocal » (1 à 3 phrases) envoyé à l'agent ; `plainForSpeech` retire Markdown, liens, emojis ; tableaux et code restent à l'écran |
+| Synthèse phrase par phrase, interruptible | `say` du Mac, une phrase à la fois : `Échap` ou clic sur 🎙 coupe net |
+| Confirmation orale stricte | « oui » explicite requis ; « non », « attends », un doute ou un silence valent refus (`interpretConfirmation`) |
+| Mot d'activation | Écoute locale + Whisper + comparaison floue (pas le modèle openWakeWord de Jarvis : voir limites) |
+
+**Installer (gratuit, local, une fois)** :
+
+```bash
+cd apps/launcher
+npm run voice:install            # brew install whisper-cpp + modèle « small » (~470 Mo) dans ~/.cursor-launcher/models
+npm run voice:install -- base    # variante plus légère/rapide (~150 Mo)
+```
+
+Puis relancer l'app. Sans cette installation, la voix utilise une clé Whisper (API) si elle existe. Moteur réglable : réglages → Voix → « Moteur de dictée » (automatique : local si installé, sinon API).
+
+**Utiliser** : cliquer 🎙 (ou `Option+Maj+Espace`), parler, attendre la réponse lue ; on peut enchaîner sans recliquer. Quand l'agent demande une confirmation, il la lit et attend « oui » ou « non » (ou un clic) ; quand il pose une question à choix, répondre « le deuxième » ou le nom de l'option. Les actions **dangereuses** (rouge : `rm -r`, `sudo`, Corbeille…) ne se valident **qu'au clic**. Réglages → Voix : lire aussi les réponses tapées, voix et débit du Mac, confirmations orales, durée d'écoute après réponse.
+
+**Mot d'activation (expérimental, désactivé par défaut)** : réglages → Voix → « Mot d'activation » (par défaut « hey cursor »). Le micro écoute en permanence, **sans jamais envoyer d'audio hors du Mac** : seul Whisper local est utilisé, même si le moteur est réglé sur « API ». Coût : un peu de CPU à chaque phrase entendue ; l'indicateur micro de macOS reste allumé. Dire « hey cursor, range mon dossier Téléchargements » ouvre la fenêtre et lance la demande.
+
+**Sécurité inchangée** : la voix ne contourne rien. Le périmètre de dossiers s'applique, chaque action sensible passe par la même confirmation (à la voix ou au clic), et l'audio n'est conservé que le temps de la transcription (fichier temporaire 0600 supprimé aussitôt). Avec l'API Whisper, l'audio de la phrase part chez le fournisseur ; avec Whisper local, rien ne quitte le Mac. La voix de Cursor n'est pas réutilisable (aucune API) : on utilise les voix du Mac.
 
 ## Modèle de sécurité
 
@@ -164,12 +195,14 @@ src/core/        Logique pure, sans Electron (testée)
   organizer.ts     Mode dossier : scan, plan (par type / via LLM), validation, application, annulation
   service.ts       Orchestration (clés, plans en attente, autorisation de dossier, transcription)
   settings.ts      Réglages et historique (JSON)
-  transcribe.ts    Whisper (multipart /audio/transcriptions)
-src/main/        Processus principal Electron : fenêtre, tray, raccourcis, IPC, trousseau (safeStorage)
+  transcribe.ts    Whisper via API (multipart /audio/transcriptions)
+  whisper.ts       Whisper local (whisper.cpp) : détection du binaire/modèle, transcription
+  voice.ts         Voix pure : texte → oral, voix du Mac, oui/non, choix, mot d'activation, filtre Whisper
+src/main/        Processus principal Electron : fenêtre, tray, raccourcis, IPC, trousseau (safeStorage), synthèse vocale (`say`)
 src/preload/     Pont contextBridge minimal (API typée, pas d'accès Node)
-src/renderer/    UI (HTML/CSS/TS sans framework) : barre de prompt, aperçu de plan, confirmations, réglages, micro
-test/            Tests Vitest (73 tests)
-scripts/         copy-assets, gen-icons (icône tray), e2e-smoke (Linux/Xvfb)
+src/renderer/    UI (HTML/CSS/TS sans framework) : barre de prompt, aperçu de plan, confirmations, réglages ; audio.ts (VAD, WAV), voice.ts (micro)
+test/            Tests Vitest
+scripts/         copy-assets, gen-icons (icône tray), e2e-smoke et e2e-voice (Linux/Xvfb), install-voice, install-mac-app
 ```
 
 Le renderer ne touche jamais au disque : tout passe par l'IPC vers le processus principal, qui applique périmètre et confirmations. Les confirmations sont demandées au renderer (`confirm:request`) et bloquent l'outil jusqu'à la réponse ; masquer la fenêtre vaut refus.
@@ -177,13 +210,14 @@ Le renderer ne touche jamais au disque : tout passe par l'IPC vers le processus 
 ## Tests
 
 ```bash
-npm test             # 90 tests unitaires/intégration (Vitest)
+npm test             # 149 tests unitaires/intégration (Vitest)
 npm run typecheck
 npm run build
 npm run e2e:linux    # app Electron réelle sous Xvfb + faux serveur LLM (nécessite xvfb-run)
+npm run e2e:voice    # conversation vocale réelle : micro simulé (espeak-ng), faux Whisper/say (xvfb-run + espeak-ng)
 ```
 
-Couverture : périmètre (traversée, liens symboliques, préfixes voisins), classification shell, chaque outil (confirmation, refus, non-écrasement, timeout shell), boucle agent (erreurs d'outils, limite d'étapes, annulation), client LLM, mode dossier (dry-run, sélection partielle, collisions, re-vérification, annulation, autorisation hors périmètre), stockage des réglages/historique, transcription, résolution des clés, mémoire de conversation, outil `ask_user`, analyseur Markdown, mise à jour git (nouveautés, `npm install` conditionnel, échec de compilation avec retour arrière, modifications locales, dépôt injoignable, sur de vrais dépôts temporaires). Le test e2e Linux couvre aussi le fil de conversation, les boutons de réponse, le rendu Markdown et « Nouvelle conversation ».
+Couverture : périmètre (traversée, liens symboliques, préfixes voisins), classification shell, chaque outil (confirmation, refus, non-écrasement, timeout shell), boucle agent (erreurs d'outils, limite d'étapes, annulation), client LLM, mode dossier (dry-run, sélection partielle, collisions, re-vérification, annulation, autorisation hors périmètre), stockage des réglages/historique, transcription, résolution des clés, mémoire de conversation, outil `ask_user`, analyseur Markdown, mise à jour git (nouveautés, `npm install` conditionnel, échec de compilation avec retour arrière, modifications locales, dépôt injoignable, sur de vrais dépôts temporaires). Voix : détection de parole (bruit, claquements, clics), WAV, texte→oral, oui/non strict, choix oral, mot d'activation, filtre Whisper, whisper.cpp local (fausses commandes + un test avec le vrai binaire si `WHISPER_BIN`/`WHISPER_MODEL`/`WHISPER_SAMPLE` sont définis), `say`. `e2e:voice` joue de vraies phrases dans la vraie app (conversation, confirmation « oui », « merci c'est tout », mot d'activation, et vrai whisper.cpp si `WHISPER_BIN`/`WHISPER_MODEL`). Le test e2e Linux couvre aussi le fil de conversation, les boutons de réponse, le rendu Markdown et « Nouvelle conversation ».
 
 ## À vérifier sur Mac
 
@@ -194,7 +228,13 @@ Non testable depuis la VM Linux :
 - [ ] Prise de focus de la fenêtre depuis une autre app, masquage à la perte de focus, restitution du focus à l'app précédente (`app.hide()`).
 - [ ] Lancement au login (`setLoginItemSettings`, visible dans Réglages Système → Général → Éléments de connexion).
 - [ ] **Fournisseur Cursor** avec une vraie clé : un prompt avec appel d'outil (ex. « liste mon dossier Downloads »), confirmation affichée pour un shell, annulation (Échap), « Lister les modèles » et sélection d'un modèle Claude, mode dossier. Vérifier aussi que le modèle appelle bien nos outils `custom-user-tools` (et qu'aucun outil intégré Cursor n'est proposé), le chargement du SDK dans l'app packagée (`asarUnpack`, binaire darwin) et l'usage « SDK » dans le tableau de bord Cursor.
-- [ ] Dictée : invite micro, `MediaRecorder` WebM/Opus dans Electron macOS, qualité Whisper en français, raccourci `Option+Maj+Espace`. Limite connue : `globalShortcut` ne détecte pas le relâchement d'une touche, donc le raccourci global **bascule** (démarrer/arrêter) ; le vrai push-to-talk (maintien) n'existe que sur le bouton micro.
+- [ ] **Voix** (rien de cela n'a pu être essayé sur un vrai Mac) :
+  - `npm run voice:install` (Homebrew, modèle) puis un 🎙 : invite micro macOS, `AudioContext` 16 kHz + `ScriptProcessor` dans Electron macOS, seuils de détection avec le vrai micro (trop sensible / trop sourd ? voir `src/renderer/audio.ts`), précision de Whisper `small` en français.
+  - Synthèse `say` : voix française choisie automatiquement (Amélie/Thomas/Audrey si installées), débit 185, coupure avec `Échap`.
+  - Écho : la parole de l'assistant ne doit pas être reprise par le micro (l'écoute ne reprend que 250 ms après la fin de la phrase ; à tester sur haut-parleurs de MacBook).
+  - Confirmation orale « oui »/« non » sur une vraie commande shell ; vérifier qu'une action rouge n'est validable qu'au clic.
+  - Mot d'activation « hey cursor » : taux de reconnaissance, faux déclenchements, consommation CPU, fenêtre cachée (`backgroundThrottling: false`).
+  - Raccourci `Option+Maj+Espace` : il **bascule** la conversation (`globalShortcut` ne détecte pas le relâchement d'une touche, donc pas de push-to-talk).
 - [ ] `open -a` pour « ouvrir une app », Corbeille (`shell.trashItem`), invites d'accès aux dossiers Bureau/Documents/Téléchargements.
 - [ ] Trousseau : `safeStorage` (invite d'accès au Trousseau à la première utilisation, clé conservée entre deux lancements).
 - [ ] Conversation : mise en page (fenêtre 780×680), saisie multi-lignes avec dictée, cartes de question (boutons + saisie libre) et de confirmation avec une vraie clé Cursor : vérifier que le modèle appelle bien `ask_user` quand il manque une information, et que la mémoire de l'agent Cursor est conservée d'un message à l'autre.
@@ -209,5 +249,5 @@ Non testable depuis la VM Linux :
 - Le rendu Markdown est volontairement minimal (pas d'images, pas de HTML, liens `http(s)`/`mailto` seulement).
 - Mode dossier non récursif ; l'annulation ne couvre que le dernier rangement de la session.
 - Pas de pilotage d'UI (clics, saisie) ni de lecture d'écran : prévu après validation du MVP.
-- Dictée uniquement via API Whisper (la Web Speech API de Chromium n'est pas fonctionnelle dans Electron sans clés Google). Pistes : `whisper.cpp` local, dictée macOS native.
+- Voix : pas d'interruption à la voix pendant que l'assistant parle (écoute coupée pendant la réponse, anti-écho) : `Échap`/clic pour couper ; transcription par phrase complète (pas de streaming) donc 1 à 3 s de latence avec Whisper `small` ; le mot d'activation passe par une transcription et non par un modèle dédié (openWakeWord, utilisé par Jarvis, est sous licence CC-BY-NC-SA : non commerciale, non reprise) donc moins précis et plus gourmand ; voix du Mac (`say`) uniquement, la dictée macOS native et la Web Speech API ne sont pas utilisées (Chromium sans clés Google).
 - Pas de tests automatisés de l'UI macOS native ni de CI dédiée.

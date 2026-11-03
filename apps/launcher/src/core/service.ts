@@ -27,6 +27,9 @@ import {
 import { Scope, expandHome, realpathLoose } from "./security";
 import type { Settings } from "./settings";
 import { transcribeAudio } from "./transcribe";
+import { makeRunner, type Runner } from "./updater";
+import { cleanTranscript } from "./voice";
+import { findModel, localWhisperStatus, transcribeLocal, type LocalWhisperConfig, type LocalWhisperStatus } from "./whisper";
 import type { ToolContext } from "./tools";
 import type { AgentEvent, ChatMessage, Host, LlmClient } from "./types";
 
@@ -46,6 +49,8 @@ export interface ServiceDeps {
   fetchImpl?: typeof fetch;
   /** Chargeur du SDK Cursor (injectable pour les tests). Par défaut : `@cursor/sdk`. */
   cursorSdk?: () => Promise<CursorSdkLike>;
+  /** Exécution de commandes (whisper.cpp) : injectable pour les tests. */
+  run?: Runner;
   /** Permet d'injecter un faux LLM dans les tests. */
   llmFactory?: (s: Settings, apiKey: string | undefined) => LlmClient;
 }
@@ -55,6 +60,9 @@ export const llmSecretName = (provider: string) => `llm-api-key:${provider}`;
 export const SECRET_TRANSCRIPTION = "transcription-api-key";
 
 export const MAX_HISTORY_MESSAGES = 60;
+
+/** Consigne ajoutée aux demandes dictées : la réponse sera lue à voix haute. */
+export const VOICE_PREFIX = "[Mode vocal : la réponse sera lue à voix haute. Réponds en 1 à 3 phrases courtes, sans tableau ni bloc de code ; les détails restent affichés à l'écran.]\n";
 
 /** Borne la mémoire en coupant sur un message utilisateur (jamais entre un appel d'outil et sa réponse). */
 export function trimHistory(messages: ChatMessage[], max = MAX_HISTORY_MESSAGES): ChatMessage[] {
@@ -156,7 +164,8 @@ export class LauncherService {
     this.controller?.abort();
   }
 
-  async runPrompt(prompt: string, onEvent: (e: AgentEvent) => void): Promise<string> {
+  async runPrompt(rawPrompt: string, onEvent: (e: AgentEvent) => void, opts: { voice?: boolean } = {}): Promise<string> {
+    const prompt = opts.voice ? `${VOICE_PREFIX}${rawPrompt}` : rawPrompt;
     this.controller = new AbortController();
     try {
       if (this.isCursor()) {
@@ -265,16 +274,55 @@ export class LauncherService {
     return result;
   }
 
-  async transcribe(audio: Uint8Array, mimeType: string): Promise<string> {
+  private localWhisperConfig(): LocalWhisperConfig {
+    const s = this.deps.getSettings();
+    const model = s.whisperModel.trim() || findModel(this.deps.home ?? os.homedir()) || "";
+    return { bin: s.whisperBin, model, language: "fr" };
+  }
+
+  private runner(): Runner {
+    return this.deps.run ?? makeRunner({ loginShell: process.platform === "darwin" ? "/bin/zsh" : undefined });
+  }
+
+  /** État des moteurs de transcription (affiché dans les réglages ; décide si le mot d'activation est permis). */
+  async sttStatus(): Promise<{ local: LocalWhisperStatus; api: boolean; engine: Settings["sttEngine"] }> {
+    const local = await localWhisperStatus(this.localWhisperConfig(), this.runner());
+    return { local, api: Boolean(this.transcriptionKey()), engine: this.deps.getSettings().sttEngine };
+  }
+
+  /**
+   * Transcrit un enregistrement. `localOnly` (mot d'activation) interdit tout envoi hors de l'ordinateur :
+   * un micro ouvert en permanence ne doit jamais alimenter une API distante.
+   */
+  async transcribe(audio: Uint8Array, mimeType: string, opts: { localOnly?: boolean } = {}): Promise<string> {
+    return cleanTranscript(await this.transcribeRaw(audio, mimeType, opts));
+  }
+
+  private async transcribeRaw(audio: Uint8Array, mimeType: string, opts: { localOnly?: boolean }): Promise<string> {
+    const s = this.deps.getSettings();
+    const engine = opts.localOnly ? "local" : s.sttEngine;
+    const local = this.localWhisperConfig();
+    const hasLocalModel = Boolean(local.model);
+
+    if (engine === "local" || (engine === "auto" && hasLocalModel)) {
+      try {
+        return await transcribeLocal(audio, local, this.runner());
+      } catch (err) {
+        if (engine === "local" || !this.transcriptionKey()) throw err;
+      }
+    }
+
     const key = this.transcriptionKey();
     if (!key) {
-      throw new Error("Aucune clé pour la transcription (OPENAI_API_KEY ou LAUNCHER_TRANSCRIPTION_API_KEY, ou réglages).");
+      throw new Error(
+        "Aucun moteur de transcription : installez Whisper local (cd apps/launcher && npm run voice:install) ou fournissez une clé (OPENAI_API_KEY, réglages).",
+      );
     }
-    const s = this.deps.getSettings();
     return transcribeAudio(audio, mimeType, {
       baseUrl: s.transcriptionBaseUrl,
       model: s.transcriptionModel,
       apiKey: key,
+      language: "fr",
       fetchImpl: this.deps.fetchImpl,
     });
   }

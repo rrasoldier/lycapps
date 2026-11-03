@@ -14,6 +14,20 @@ export interface Settings {
   projectsRoot: string;
   launchAtLogin: boolean;
   autoUpdate: boolean;
+  /** Lire les réponses à voix haute (voix du système) même en mode texte. */
+  speakReplies: boolean;
+  ttsVoice: string;
+  ttsRate: number;
+  /** Moteur de transcription : local (whisper.cpp), api (Whisper compatible OpenAI) ou auto (local si installé). */
+  sttEngine: "auto" | "local" | "api";
+  whisperBin: string;
+  whisperModel: string;
+  /** Répondre oui/non à voix haute aux confirmations (les actions « danger » restent au clic). */
+  voiceConfirm: boolean;
+  wakeWordEnabled: boolean;
+  wakePhrase: string;
+  /** Secondes d'écoute après une réponse, sans avoir à répéter le mot d'activation. */
+  followUpSeconds: number;
 }
 
 export function defaultSettings(home = os.homedir()): Settings {
@@ -29,6 +43,16 @@ export function defaultSettings(home = os.homedir()): Settings {
     projectsRoot: path.join(home, "Projects"),
     launchAtLogin: false,
     autoUpdate: true,
+    speakReplies: false,
+    ttsVoice: "",
+    ttsRate: 185,
+    sttEngine: "auto",
+    whisperBin: "",
+    whisperModel: "",
+    voiceConfirm: true,
+    wakeWordEnabled: false,
+    wakePhrase: "hey cursor",
+    followUpSeconds: 8,
   };
 }
 

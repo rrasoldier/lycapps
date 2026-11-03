@@ -22,7 +22,9 @@ import { HistoryStore, SettingsStore, type Settings } from "../core/settings";
 import { isSafeUrl } from "../core/security";
 import { makeRunner, Updater, type UpdateStatus } from "../core/updater";
 import type { AskRequest, ConfirmRequest, Host } from "../core/types";
+import { cleanTranscript, interpretConfirmation, isEndPhrase, matchChoice, matchWake, plainForSpeech } from "../core/voice";
 import { KeychainSecrets } from "./secrets";
+import { createSpeaker, listVoices, resolveVoice } from "./speech";
 
 const WIDTH = 780;
 const MIN_HEIGHT = 84;
@@ -32,6 +34,7 @@ let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let quitting = false;
 let dialogOpen = false;
+const speaker = createSpeaker();
 const pendingConfirms = new Map<string, (ok: boolean) => void>();
 const pendingAsks = new Map<string, (answer: string | null) => void>();
 
@@ -113,6 +116,7 @@ function createWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      backgroundThrottling: false,
     },
   });
   w.setAlwaysOnTop(true, "screen-saver");
@@ -160,7 +164,9 @@ function showWindow(): void {
 
 function hideWindow(): void {
   if (!win || !win.isVisible()) return;
+  speaker.stop();
   win.hide();
+  win.webContents.send("ui:hidden");
   if (process.platform === "darwin") app.hide();
 }
 
@@ -172,6 +178,18 @@ function toggleWindow(): void {
 function toggleDictation(): void {
   showWindow();
   win?.webContents.send("ui:toggle-dictation");
+}
+
+async function speak(text: string): Promise<{ ok: boolean; error?: string }> {
+  const s = settingsStore.get();
+  const spoken = plainForSpeech(text);
+  if (!spoken) return { ok: true };
+  try {
+    await speaker.speak(spoken, { voice: await resolveVoice(s.ttsVoice), rate: s.ttsRate });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  }
 }
 
 function registerShortcuts(s: Settings): string[] {
@@ -251,11 +269,11 @@ function registerIpc(): void {
     }
   });
 
-  ipcMain.handle("agent:run", async (e, prompt: string) => {
+  ipcMain.handle("agent:run", async (e, prompt: string, opts?: { voice?: boolean }) => {
     if (typeof prompt !== "string" || !prompt.trim()) return { ok: false, text: "Prompt vide." };
     history.add(prompt);
     try {
-      const text = await service.runPrompt(prompt, (ev) => e.sender.send("agent:event", ev));
+      const text = await service.runPrompt(prompt, (ev) => e.sender.send("agent:event", ev), { voice: opts?.voice === true });
       return { ok: true, text };
     } catch (err) {
       return { ok: false, text: errorMessage(err) };
@@ -318,13 +336,36 @@ function registerIpc(): void {
     if (status === "not-determined") return systemPreferences.askForMediaAccess("microphone");
     return false;
   });
-  ipcMain.handle("voice:transcribe", async (_e, audio: ArrayBuffer, mime: string) => {
+  ipcMain.handle("voice:transcribe", async (_e, audio: ArrayBuffer, mime: string, opts?: { localOnly?: boolean }) => {
     try {
-      return { ok: true, text: await service.transcribe(new Uint8Array(audio), mime) };
+      return { ok: true, text: await service.transcribe(new Uint8Array(audio), mime, { localOnly: opts?.localOnly === true }) };
     } catch (err) {
       return { ok: false, error: errorMessage(err) };
     }
   });
+  ipcMain.handle("voice:status", async () => ({
+    ...(await service.sttStatus()),
+    voices: (await listVoices()).filter((v) => v.locale.startsWith("fr")).map((v) => v.name),
+    speech: process.platform === "darwin" || Boolean(process.env.LAUNCHER_SAY),
+  }));
+  ipcMain.handle("voice:speak", (_e, text: string) => speak(typeof text === "string" ? text : ""));
+  ipcMain.handle("voice:stop", () => speaker.stop());
+  ipcMain.handle("voice:parse", (_e, kind: string, text: string, arg?: unknown) => {
+    const t = typeof text === "string" ? cleanTranscript(text) : "";
+    switch (kind) {
+      case "confirm":
+        return interpretConfirmation(t);
+      case "choice":
+        return Array.isArray(arg) ? matchChoice(t, arg.map(String)) : -1;
+      case "end":
+        return isEndPhrase(t);
+      case "wake":
+        return matchWake(t, typeof arg === "string" ? arg : "");
+      default:
+        return null;
+    }
+  });
+  ipcMain.handle("ui:wake", () => showWindow());
 
   ipcMain.handle("confirm:answer", (_e, id: string, ok: boolean) => {
     const resolve = pendingConfirms.get(id);
@@ -427,7 +468,7 @@ function refreshTrayMenu(): void {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: `Afficher le lanceur (${s.shortcut})`, click: showWindow },
-      { label: `Dicter (${s.dictationShortcut})`, click: toggleDictation },
+      { label: `Parler à l'assistant (${s.dictationShortcut})`, click: toggleDictation },
       { label: "Réglages…", click: () => { showWindow(); win?.webContents.send("ui:open-settings"); } },
       { type: "separator" },
       {
@@ -471,7 +512,10 @@ if (!app.requestSingleInstanceLock()) {
   app.on("before-quit", () => {
     quitting = true;
   });
-  app.on("will-quit", () => globalShortcut.unregisterAll());
+  app.on("will-quit", () => {
+    speaker.stop();
+    globalShortcut.unregisterAll();
+  });
   app.on("window-all-closed", () => {
     /* application de barre de menus : on reste actif */
   });

@@ -1,4 +1,5 @@
 import { parseMarkdown, type Block, type Inline } from "./markdown.js";
+import { Mic, type Listening } from "./voice.js";
 
 const api = window.launcher;
 
@@ -78,6 +79,7 @@ function setHint(text: string | null): void {
 }
 
 function baseHint(): string | null {
+  if (voiceHint) return voiceHint;
   if (pendingAsk) return null;
   if (busy) return "Échap pour interrompre";
   return folder ? FOLDER_HINT : null;
@@ -373,33 +375,46 @@ async function submit(preset: "prompt" | "type"): Promise<void> {
   promptEl.value = "";
   autosize();
   historyIdx = -1;
+  const reply = await sendText(text, { preset });
+  if (reply && state.settings.speakReplies && !voiceActive) void say(reply);
+}
+
+/** Envoie une demande à l'agent (texte tapé ou phrase dictée) ; renvoie la réponse à lire, `null` en cas d'échec. */
+async function sendText(text: string, opts: { preset?: "prompt" | "type"; voice?: boolean } = {}): Promise<string | null> {
   const target = folder;
-  addMessage("user", target ? `📁 ${target.split("/").filter(Boolean).pop() ?? target}${text ? ` — ${text}` : " — ranger par type"}` : text);
+  const label = target ? `📁 ${target.split("/").filter(Boolean).pop() ?? target}${text ? ` — ${text}` : " — ranger par type"}` : text;
+  addMessage("user", opts.voice ? `🎙 ${label}` : label);
   setBusy(true);
   startProgress(target ? "Analyse du dossier…" : "Envoi de la demande…");
   gotMessage = false;
   stepsEl = null;
   let ok = false;
+  let reply: string | null = null;
   try {
     if (target) {
-      const r = await api.planFolder(target, text, preset);
+      const r = await api.planFolder(target, text, opts.preset ?? "prompt");
       setFolder(null);
       if (r.ok) {
         ok = true;
         renderPlan(r.id, r.plan);
+        reply = `Aperçu prêt : ${r.plan.moves.length} déplacement${r.plan.moves.length > 1 ? "s" : ""} proposé${r.plan.moves.length > 1 ? "s" : ""}. Rien n'est modifié tant que vous n'avez pas validé à l'écran.`;
       } else addMessage("error", r.error);
     } else {
       state = { ...state, history: [...state.history.filter((h) => h !== text), text] };
-      const r = await api.runPrompt(text);
+      const r = await api.runPrompt(text, { voice: opts.voice === true });
       ok = r.ok;
       if (!r.ok) addMessage("error", r.text);
-      else if (!gotMessage && r.text) addMessage("assistant", r.text, true);
+      else {
+        reply = r.text;
+        if (!gotMessage && r.text) addMessage("assistant", r.text, true);
+      }
     }
   } finally {
     openSteps = [];
     stopProgress(ok);
     setBusy(false);
   }
+  return ok ? reply : null;
 }
 
 /* Aperçu du rangement */
@@ -465,6 +480,7 @@ function answerAsk(answer: string | null): void {
   if (!pendingAsk) return;
   const { view, card: cardEl } = pendingAsk;
   pendingAsk = null;
+  cancelListening();
   cardEl.classList.add("done");
   for (const b of cardEl.querySelectorAll("button")) {
     b.disabled = true;
@@ -546,6 +562,7 @@ function answerConfirm(ok: boolean): void {
   if (!pendingConfirm) return;
   const { view, card: cardEl } = pendingConfirm;
   pendingConfirm = null;
+  cancelListening();
   cardEl.classList.add("done");
   const row = cardEl.querySelector(".row");
   row?.replaceChildren(el("span", "sub", ok ? "✓ Autorisé" : "✗ Refusé"));
@@ -594,6 +611,10 @@ document.addEventListener("keydown", (e) => {
   }
   if (e.key !== "Escape") return;
   e.preventDefault();
+  if (voiceActive) {
+    endConversation();
+    if (!pendingConfirm && !pendingAsk && !busy) return;
+  }
   if (pendingConfirm) return answerConfirm(false);
   if (pendingAsk) {
     answerAsk(null);
@@ -601,7 +622,6 @@ document.addEventListener("keydown", (e) => {
   }
   if (!settingsEl.hidden) return closeSettings();
   if (busy) return void api.cancel();
-  if (recorder) return stopRecording();
   if (folder) return setFolder(null);
   void api.hide();
 });
@@ -648,68 +668,317 @@ document.addEventListener("drop", (e) => {
   promptEl.focus();
 });
 
-/* Voix */
-let recorder: MediaRecorder | null = null;
-let recordTimer: number | undefined;
-let recordStart = 0;
+/* Voix : conversation parlée (écoute → transcription → agent → réponse lue), dictée simple, mot d'activation */
+type VoiceMode = "off" | "listening" | "thinking" | "speaking" | "wake";
 
-async function startRecording(): Promise<void> {
-  if (recorder) return;
+const mic = new Mic();
+const NO_ENGINE =
+  "Aucun moteur de dictée : installez Whisper local (cd apps/launcher && npm run voice:install) ou fournissez une clé (réglages → Voix).";
+let voiceActive = false;
+let voiceHint: string | null = null;
+let voiceStatus: VoiceStatusView | null = null;
+let convGen = 0;
+let listening: Listening | null = null;
+let wakeListening: Listening | null = null;
+let wakeOn = false;
+let wakeGen = 0;
+
+const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
+
+function setVoice(mode: VoiceMode, hint: string | null = null): void {
+  micBtn.dataset.voice = mode === "off" ? "" : mode;
+  micBtn.classList.toggle("active", mode === "listening" || mode === "thinking" || mode === "speaking");
+  micBtn.style.setProperty("--level", "0");
+  voiceHint = hint;
+  setHint(baseHint());
+}
+
+function onLevel(level: number): void {
+  micBtn.style.setProperty("--level", String(Math.min(1, level * 10)));
+}
+
+function cancelListening(): void {
+  listening?.cancel();
+}
+
+async function refreshVoiceStatus(): Promise<VoiceStatusView> {
+  voiceStatus = await api.voiceStatus();
+  return voiceStatus;
+}
+
+function wavBuffer(wav: Uint8Array): ArrayBuffer {
+  return wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength) as ArrayBuffer;
+}
+
+type Heard = { kind: "text"; text: string } | { kind: "silence" } | { kind: "cancelled" } | { kind: "error"; error: string };
+
+async function hear(timeoutMs: number, prompt = "🎙 Je vous écoute… (Échap pour arrêter, clic sur le micro quand vous avez fini)"): Promise<Heard> {
+  setVoice("listening", prompt);
+  const l = mic.listen({ startTimeoutMs: timeoutMs, onLevel });
+  listening = l;
+  const r = await l.result;
+  if (listening === l) listening = null;
+  if (r.reason === "cancelled") return { kind: "cancelled" };
+  if (r.reason === "timeout" || !r.wav) return { kind: "silence" };
+  setVoice("thinking", "Transcription…");
+  const t = await api.transcribe(wavBuffer(r.wav), "audio/wav");
+  return t.ok ? { kind: "text", text: t.text.trim() } : { kind: "error", error: t.error };
+}
+
+async function say(text: string, gen = convGen): Promise<void> {
+  if (!text) return;
+  setVoice("speaking", "🔊 Je réponds… (Échap ou clic sur le micro pour couper)");
+  const r = await api.speak(text);
+  if (!r.ok && r.error) addMessage("note", r.error);
+  if (voiceActive && gen === convGen) {
+    await sleep(250);
+    setVoice("off");
+  } else if (!voiceActive) setVoice("off");
+}
+
+const alive = (gen: number) => voiceActive && gen === convGen;
+
+async function startConversation(opts: { first?: string; greet?: boolean } = {}): Promise<void> {
+  if (voiceActive) return;
+  stopWake();
+  const st = await refreshVoiceStatus();
+  if (!st.local.ready && !st.api) {
+    setHint(NO_ENGINE);
+    return void startWake();
+  }
   if (!(await api.ensureMic())) {
-    return setHint("Micro refusé : autorisez Cursor Launcher dans Réglages Système → Confidentialité → Micro.");
+    setHint("Micro refusé : autorisez Cursor Launcher dans Réglages Système → Confidentialité → Micro.");
+    return void startWake();
   }
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "";
-    const chunks: Blob[] = [];
-    const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-    rec.ondataavailable = (ev) => ev.data.size && chunks.push(ev.data);
-    rec.onstop = async () => {
-      stream.getTracks().forEach((t) => t.stop());
-      micBtn.classList.remove("active");
-      window.clearTimeout(recordTimer);
-      recorder = null;
-      const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
-      if (blob.size < 1000) return setHint("Enregistrement trop court.");
-      setHint("Transcription…");
-      const r = await api.transcribe(await blob.arrayBuffer(), blob.type);
-      if (!r.ok) return setHint(r.error);
-      setHint(baseHint());
-      promptEl.value = `${promptEl.value}${promptEl.value && !promptEl.value.endsWith(" ") ? " " : ""}${r.text}`.trimStart();
-      autosize();
-      promptEl.focus();
-    };
-    rec.start();
-    recorder = rec;
-    recordStart = Date.now();
-    micBtn.classList.add("active");
-    setHint("🎙 J'écoute… (clic ou Échap pour terminer)");
-    recordTimer = window.setTimeout(stopRecording, 90_000);
+    await mic.open();
   } catch (err) {
     setHint(`Micro indisponible : ${err instanceof Error ? err.message : String(err)}`);
+    return void startWake();
+  }
+  voiceActive = true;
+  const gen = ++convGen;
+  try {
+    if (opts.greet) await say("Oui ?", gen);
+    await converse(gen, opts.first);
+  } catch (err) {
+    addMessage("error", `Voix : ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    if (gen === convGen) endConversation();
   }
 }
 
-function stopRecording(): void {
-  if (recorder && recorder.state !== "inactive") recorder.stop();
+function endConversation(): void {
+  if (!voiceActive) return;
+  voiceActive = false;
+  convGen++;
+  cancelListening();
+  void api.stopSpeech();
+  if (!state.settings.wakeWordEnabled) mic.close();
+  setVoice("off");
+  void startWake();
 }
 
-/* Clic = bascule ; maintien (> 500 ms) = push-to-talk, relâcher arrête. */
-let startedByThisPress = false;
-micBtn.addEventListener("pointerdown", async () => {
-  if (recorder) {
-    stopRecording();
-    startedByThisPress = false;
+/** Boucle d'une conversation : écoute, envoie, lit la réponse, puis reste à l'écoute `followUpSeconds` secondes. */
+async function converse(gen: number, first?: string): Promise<void> {
+  const followUp = Math.max(2, state.settings.followUpSeconds) * 1000;
+  let firstTurn = true;
+  let empty = 0;
+  let pending = first;
+  while (alive(gen)) {
+    await supervise(gen, () => !busy);
+    if (!alive(gen)) return;
+    let text = pending;
+    pending = undefined;
+    if (text === undefined) {
+      const h = await hear(firstTurn ? 8000 : followUp);
+      if (!alive(gen) || h.kind === "cancelled") return;
+      if (h.kind === "error") return void addMessage("error", h.error);
+      if (h.kind === "silence") {
+        if (firstTurn) setHint("Je n'ai rien entendu.");
+        return;
+      }
+      text = h.text;
+    }
+    firstTurn = false;
+    if (!text) {
+      if (++empty >= 2) return;
+      continue;
+    }
+    empty = 0;
+    if (await api.parseVoice("end", text)) {
+      await say("À bientôt.", gen);
+      return;
+    }
+    let reply: string | null = null;
+    const turn = sendText(text, { voice: true }).then((r) => (reply = r));
+    let over = false;
+    void turn.finally(() => (over = true));
+    await supervise(gen, () => over);
+    if (!alive(gen)) return;
+    if (reply) await say(reply, gen);
+  }
+}
+
+/** Attend `done()` en répondant, à la voix, aux confirmations et questions que l'agent pose entre-temps. */
+async function supervise(gen: number, done: () => boolean): Promise<void> {
+  while (!done() && alive(gen)) {
+    if (pendingConfirm) await voiceConfirm(gen);
+    else if (pendingAsk) await voiceAsk(gen);
+    else await sleep(120);
+  }
+}
+
+async function waitUntil(gen: number, cond: () => boolean): Promise<void> {
+  while (cond() && alive(gen)) await sleep(120);
+}
+
+async function voiceConfirm(gen: number): Promise<void> {
+  const pc = pendingConfirm;
+  if (!pc) return;
+  const { view } = pc;
+  const stillPending = () => pendingConfirm === pc;
+  if (view.risk === "danger" || !state.settings.voiceConfirm) {
+    await say(view.risk === "danger" ? `Action sensible : ${view.title}. Validez-la avec le bouton à l'écran.` : `${view.title}. J'ai besoin de votre confirmation à l'écran.`, gen);
+    return waitUntil(gen, stillPending);
+  }
+  await say(`${view.title.replace(/[\s.?!:]+$/, "")}. ${view.detail} Dois-je l'autoriser ? Dites oui ou non.`, gen);
+  for (let attempt = 0; attempt < 2 && alive(gen) && stillPending(); attempt++) {
+    const h = await hear(10_000, "🎙 Autoriser ? Dites « oui » ou « non » (ou cliquez).");
+    if (!alive(gen) || !stillPending() || h.kind === "cancelled") return;
+    if (h.kind === "text" && h.text) {
+      addMessage("note", `🎙 « ${h.text} »`);
+      const verdict = await api.parseVoice("confirm", h.text);
+      if (!stillPending()) return;
+      answerConfirm(verdict === "yes");
+      void say(verdict === "yes" ? "D'accord." : "Refusé.", gen);
+      return;
+    }
+    if (h.kind === "error") break;
+    if (attempt === 0) await say("Je n'ai pas compris. Oui ou non ?", gen);
+  }
+  if (stillPending()) {
+    answerConfirm(false);
+    void say("Sans réponse claire, je refuse par prudence.", gen);
+  }
+}
+
+async function voiceAsk(gen: number): Promise<void> {
+  const pa = pendingAsk;
+  if (!pa) return;
+  const { view } = pa;
+  const stillPending = () => pendingAsk === pa;
+  const options = view.choices.map((c, i) => `${i + 1}, ${c}.`).join(" ");
+  await say(`${view.question} ${options}`.trim(), gen);
+  for (let attempt = 0; attempt < 2 && alive(gen) && stillPending(); attempt++) {
+    const h = await hear(15_000, "🎙 Répondez à voix haute (ou cliquez / écrivez).");
+    if (!alive(gen) || !stillPending() || h.kind === "cancelled") return;
+    if (h.kind === "text" && h.text) {
+      addMessage("note", `🎙 « ${h.text} »`);
+      const idx = view.choices.length ? await api.parseVoice("choice", h.text, view.choices) : -1;
+      if (!stillPending()) return;
+      if (idx >= 0) return answerAsk(view.choices[idx]);
+      if (view.allowText) return answerAsk(h.text);
+    }
+    if (h.kind === "error") break;
+    if (attempt === 0) await say("Je n'ai pas compris. Pouvez-vous répéter ?", gen);
+  }
+  if (stillPending()) {
+    await say("Répondez à l'écran, s'il vous plaît.", gen);
+    await waitUntil(gen, stillPending);
+  }
+}
+
+/** Dictée simple (Maj + clic) : le texte reconnu est placé dans le champ, rien n'est envoyé. */
+async function dictateOnce(): Promise<void> {
+  if (voiceActive) return;
+  stopWake();
+  const st = await refreshVoiceStatus();
+  if (!st.local.ready && !st.api) {
+    setHint(NO_ENGINE);
+    return void startWake();
+  }
+  if (!(await api.ensureMic())) return setHint("Micro refusé : autorisez Cursor Launcher dans Réglages Système → Confidentialité → Micro.");
+  try {
+    await mic.open();
+    voiceActive = true;
+    const gen = ++convGen;
+    const h = await hear(10_000, "🎙 Dictée… (clic sur le micro pour terminer)");
+    if (h.kind === "text" && h.text) {
+      promptEl.value = `${promptEl.value}${promptEl.value && !promptEl.value.endsWith(" ") ? " " : ""}${h.text}`.trimStart();
+      autosize();
+    } else if (h.kind === "error") setHint(h.error);
+    else if (h.kind === "silence") setHint("Je n'ai rien entendu.");
+    if (gen === convGen) endConversation();
+    promptEl.focus();
+  } catch (err) {
+    voiceActive = false;
+    setVoice("off");
+    setHint(`Micro indisponible : ${err instanceof Error ? err.message : String(err)}`);
+    void startWake();
+  }
+}
+
+/* Mot d'activation : écoute permanente, entièrement locale (aucun audio n'est envoyé à une API). */
+function stopWake(): void {
+  wakeOn = false;
+  wakeGen++;
+  wakeListening?.cancel();
+  wakeListening = null;
+  if (micBtn.dataset.voice === "wake") setVoice("off");
+}
+
+async function startWake(): Promise<void> {
+  if (wakeOn || voiceActive || !state.settings.wakeWordEnabled || !state.settings.wakePhrase.trim()) return;
+  const st = await refreshVoiceStatus();
+  if (!st.local.ready) {
+    setHint(`Mot d'activation : Whisper local requis (${st.local.detail}).`);
     return;
   }
-  startedByThisPress = true;
-  await startRecording();
+  if (!(await api.ensureMic())) return;
+  try {
+    await mic.open();
+  } catch {
+    return;
+  }
+  if (wakeOn || voiceActive) return;
+  wakeOn = true;
+  const gen = ++wakeGen;
+  micBtn.dataset.voice = "wake";
+  void (async () => {
+    while (wakeOn && gen === wakeGen) {
+      const l = mic.listen({ startTimeoutMs: null, maxMs: 8000 });
+      wakeListening = l;
+      const r = await l.result;
+      if (gen !== wakeGen || r.reason === "cancelled") return;
+      if (!r.wav) continue;
+      const t = await api.transcribe(wavBuffer(r.wav), "audio/wav", { localOnly: true });
+      if (gen !== wakeGen) return;
+      if (!t.ok) {
+        stopWake();
+        setHint(`Mot d'activation désactivé : ${t.error}`);
+        return;
+      }
+      const m = await api.parseVoice("wake", t.text, state.settings.wakePhrase);
+      if (gen !== wakeGen || !m.matched) continue;
+      stopWake();
+      await api.wake();
+      void startConversation({ first: m.rest || undefined, greet: !m.rest });
+      return;
+    }
+  })();
+}
+
+micBtn.addEventListener("click", (ev) => {
+  if (!voiceActive) return void (ev.shiftKey ? dictateOnce() : startConversation());
+  if (listening) return listening.finish();
+  if (micBtn.dataset.voice === "speaking") return void api.stopSpeech();
+  endConversation();
 });
-micBtn.addEventListener("pointerup", () => {
-  if (startedByThisPress && recorder && Date.now() - recordStart > 500) stopRecording();
-  startedByThisPress = false;
+api.onToggleDictation(() => (voiceActive ? endConversation() : void startConversation()));
+api.onHidden(() => {
+  endConversation();
 });
-api.onToggleDictation(() => (recorder ? stopRecording() : void startRecording()));
 
 /* Réglages */
 function closeSettings(): void {
@@ -792,6 +1061,32 @@ function openSettings(): void {
   const autoUpdate = el("input");
   autoUpdate.type = "checkbox";
   autoUpdate.checked = s.autoUpdate;
+  const checkbox = (value: boolean) => {
+    const c = el("input");
+    c.type = "checkbox";
+    c.checked = value;
+    return c;
+  };
+  const sttEngine = el("select");
+  for (const [v, l] of [["auto", "Automatique (local si installé, sinon clé API)"], ["local", "Local uniquement (Whisper, gratuit)"], ["api", "API uniquement (clé Whisper)"]] as const) {
+    sttEngine.add(new Option(l, v, false, v === s.sttEngine));
+  }
+  const sttStatusLine = el("div", "update-info", "Vérification…");
+  const voiceSelect = el("select");
+  voiceSelect.add(new Option("Automatique (voix française du Mac)", "", false, !s.ttsVoice));
+  if (s.ttsVoice) voiceSelect.add(new Option(s.ttsVoice, s.ttsVoice, false, true));
+  const ttsRate = textInput(String(s.ttsRate), "185");
+  const speakReplies = checkbox(s.speakReplies);
+  const voiceConfirm = checkbox(s.voiceConfirm);
+  const wakeEnabled = checkbox(s.wakeWordEnabled);
+  const wakePhrase = textInput(s.wakePhrase, "hey cursor");
+  const followUp = textInput(String(s.followUpSeconds), "8");
+  const whisperBin = textInput(s.whisperBin, "whisper-cli (détecté automatiquement)");
+  const whisperModel = textInput(s.whisperModel, "~/.cursor-launcher/models/ggml-small.bin");
+  void refreshVoiceStatus().then((v) => {
+    sttStatusLine.textContent = `Whisper local : ${v.local.ready ? "prêt" : "non prêt"} — ${v.local.detail}. Clé API : ${v.api ? "disponible" : "absente"}. Voix du Mac : ${v.speech ? "disponible" : "indisponible (macOS requis)"}.`;
+    for (const name of v.voices) if (name !== s.ttsVoice) voiceSelect.add(new Option(name, name));
+  });
   const updateInfo = el("div", "update-info", "Vérification…");
   const updateBtn = el("button", "", "Vérifier / mettre à jour");
   const showUpdate = (u: UpdateView) => {
@@ -827,7 +1122,20 @@ function openSettings(): void {
     field("Clé API", apiKey, state.secretsAvailable ? "Variables d'environnement prioritaires (CURSOR_API_KEY, LAUNCHER_API_KEY, OPENAI_API_KEY…)." : "Trousseau indisponible : utilisez une variable d'environnement."),
     field("Clé dictée (Whisper)", sttKey),
     field("Raccourci principal", shortcut, "Format Electron, ex. Alt+Space, CommandOrControl+Shift+Space"),
-    field("Raccourci dictée", dictation),
+    field("Raccourci voix", dictation, "Démarre/arrête la conversation vocale depuis n'importe où."),
+    el("h2", "section", "Voix"),
+    field("Moteur de dictée", sttEngine),
+    field("État", sttStatusLine, "Installation gratuite et locale : cd apps/launcher && npm run voice:install"),
+    field("Lire les réponses", speakReplies, "Même quand vous écrivez (la conversation vocale lit toujours les réponses)."),
+    field("Voix", voiceSelect),
+    field("Débit (mots/min)", ttsRate),
+    field("Confirmer à la voix", voiceConfirm, "« oui / non » à l'oral pour les confirmations ordinaires. Les actions sensibles restent à valider au clic."),
+    field("Mot d'activation", wakeEnabled, "Expérimental : micro à l'écoute en permanence, transcription 100 % locale (Whisper requis)."),
+    field("Phrase", wakePhrase, "Ex. « hey cursor »."),
+    field("Écoute après réponse (s)", followUp, "Durée pendant laquelle l'assistant attend une suite sans que vous ayez à relancer."),
+    field("Binaire Whisper", whisperBin),
+    field("Modèle Whisper", whisperModel),
+    el("h2", "section", "Général"),
     field("Dossier des projets", projects),
     field("Lancer au démarrage", login),
     field("Mises à jour auto", autoUpdate, "Vérifie au démarrage (git pull + compilation) et redémarre si une nouvelle version est installée."),
@@ -889,10 +1197,23 @@ function openSettings(): void {
       projectsRoot: projects.value.trim(),
       launchAtLogin: login.checked,
       autoUpdate: autoUpdate.checked,
+      sttEngine: sttEngine.value as LauncherState["settings"]["sttEngine"],
+      speakReplies: speakReplies.checked,
+      ttsVoice: voiceSelect.value,
+      ttsRate: Math.min(400, Math.max(80, Number.parseInt(ttsRate.value, 10) || 185)),
+      voiceConfirm: voiceConfirm.checked,
+      wakeWordEnabled: wakeEnabled.checked,
+      wakePhrase: wakePhrase.value.trim() || "hey cursor",
+      followUpSeconds: Math.min(30, Math.max(2, Number.parseInt(followUp.value, 10) || 8)),
+      whisperBin: whisperBin.value.trim(),
+      whisperModel: whisperModel.value.trim(),
     });
     state = res.state;
     errs.push(...res.errors);
     messages.textContent = errs.length ? errs.join("\n") : "Réglages enregistrés.";
+    stopWake();
+    if (!wakeEnabled.checked && !voiceActive) mic.close();
+    void startWake();
     messages.className = errs.length ? "line err" : "line ok";
   };
   row.append(clear, save);
@@ -913,6 +1234,7 @@ async function init(): Promise<void> {
   }
   promptEl.focus();
   fit();
+  void startWake();
 }
 
 if (location.hash === "#e2e") {

@@ -11,6 +11,16 @@ interface LauncherState {
     projectsRoot: string;
     launchAtLogin: boolean;
     autoUpdate: boolean;
+    speakReplies: boolean;
+    ttsVoice: string;
+    ttsRate: number;
+    sttEngine: "auto" | "local" | "api";
+    whisperBin: string;
+    whisperModel: string;
+    voiceConfirm: boolean;
+    wakeWordEnabled: boolean;
+    wakePhrase: string;
+    followUpSeconds: number;
   };
   history: string[];
   llmKeySource: "env" | "keychain" | "none";
@@ -71,11 +81,19 @@ interface AskView {
   allowText: boolean;
 }
 
+interface VoiceStatusView {
+  local: { ready: boolean; detail: string };
+  api: boolean;
+  engine: "auto" | "local" | "api";
+  voices: string[];
+  speech: boolean;
+}
+
 interface LauncherApi {
   getState(): Promise<LauncherState>;
   updateSettings(patch: Partial<LauncherState["settings"]>): Promise<{ state: LauncherState; errors: string[] }>;
   setSecret(name: "llm" | "transcription", value: string | null): Promise<{ state: LauncherState; error: string | null }>;
-  runPrompt(prompt: string): Promise<{ ok: boolean; text: string }>;
+  runPrompt(prompt: string, opts?: { voice?: boolean }): Promise<{ ok: boolean; text: string }>;
   listModels(): Promise<{ ok: true; models: Array<{ id: string; displayName: string }> } | { ok: false; error: string }>;
   cancel(): Promise<void>;
   clearHistory(): Promise<string[]>;
@@ -86,7 +104,16 @@ interface LauncherApi {
   applyPlan(id: string, selected: string[]): Promise<{ ok: true; result: ApplyView } | { ok: false; error: string }>;
   undoOrganize(): Promise<{ ok: true; result: ApplyView } | { ok: false; error: string }>;
   ensureMic(): Promise<boolean>;
-  transcribe(audio: ArrayBuffer, mime: string): Promise<{ ok: true; text: string } | { ok: false; error: string }>;
+  transcribe(audio: ArrayBuffer, mime: string, opts?: { localOnly?: boolean }): Promise<{ ok: true; text: string } | { ok: false; error: string }>;
+  voiceStatus(): Promise<VoiceStatusView>;
+  speak(text: string): Promise<{ ok: boolean; error?: string }>;
+  stopSpeech(): Promise<void>;
+  parseVoice(kind: "confirm", text: string): Promise<"yes" | "no">;
+  parseVoice(kind: "choice", text: string, choices: string[]): Promise<number>;
+  parseVoice(kind: "end", text: string): Promise<boolean>;
+  parseVoice(kind: "wake", text: string, phrase: string): Promise<{ matched: boolean; rest: string }>;
+  wake(): Promise<void>;
+  onHidden(cb: () => void): () => void;
   answerConfirm(id: string, ok: boolean): Promise<void>;
   answerAsk(id: string, answer: string | null): Promise<void>;
   resetConversation(): Promise<void>;
