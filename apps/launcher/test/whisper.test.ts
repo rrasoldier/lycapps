@@ -64,6 +64,8 @@ describe("whisper.cpp local", () => {
     expect(resolveWhisperBin("/mon/whisper")).toBe("/mon/whisper");
     expect(resolveWhisperBin("", (p) => p.startsWith("/opt/homebrew"))).toBe("/opt/homebrew/bin/whisper-cli");
     expect(resolveWhisperBin("", () => false)).toBe("whisper-cli");
+    expect(resolveWhisperBin("whisper-cli", (p) => p === "/usr/local/bin/whisper-cli")).toBe("/usr/local/bin/whisper-cli");
+    expect(resolveWhisperBin("", (p) => p === "/opt/homebrew/bin/whisper-cpp")).toBe("/opt/homebrew/bin/whisper-cpp");
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "launcher-whisper-"));
     expect(findModel(tmp)).toBeNull();
     fs.mkdirSync(path.dirname(defaultModelPath(tmp)), { recursive: true });
@@ -138,6 +140,38 @@ describe("service : transcription et mode vocal", () => {
     const wake = makeService({ settings: { whisperModel: "" }, env: { OPENAI_API_KEY: "k" }, fetchImpl: spy });
     await expect(wake.service.transcribe(new Uint8Array(10), "audio/wav", { localOnly: true })).rejects.toThrow(/Modèle Whisper local introuvable/);
     expect(apiCalls).toBe(0);
+  });
+
+  it("app lancée par le Finder (aucun PATH, aucune clé) : le modèle de ~/.cursor-launcher suffit, aucune clé n'est réclamée", async () => {
+    const base = makeService();
+    const model = defaultModelPath(base.sb.base);
+    fs.mkdirSync(path.dirname(model), { recursive: true });
+    fs.writeFileSync(model, "x");
+    const { run, calls } = fakeRunner({ stdout: " bonjour\n" });
+    const withModel = new LauncherService({
+      getSettings: () => ({ ...defaultSettings(base.sb.base), provider: "openai" }),
+      updateSettings: () => ({}) as Settings,
+      home: base.sb.base,
+      secrets: memorySecrets(),
+      host: base.sb.host,
+      env: {},
+      run,
+    });
+    expect(await withModel.transcribe(new Uint8Array(10), "audio/wav")).toBe("bonjour");
+    const status = await withModel.sttStatus();
+    expect(status.local.ready).toBe(true);
+    expect(status.api).toBe(false);
+    expect(calls.some((c) => c.args.includes("-m") && c.args.includes(model))).toBe(true);
+  });
+
+  it("local en échec et aucune clé : l'erreur du local est montrée, jamais une demande de clé", async () => {
+    const base = makeService();
+    const model = path.join(base.sb.base, "m.bin");
+    fs.writeFileSync(model, "x");
+    const { service } = makeService({ settings: { whisperModel: model }, env: {}, run: fakeRunner({ code: 127, stderr: "command not found" }).run });
+    const err = await service.transcribe(new Uint8Array(10), "audio/wav").catch((e: Error) => e.message);
+    expect(err).toMatch(/whisper\.cpp introuvable/);
+    expect(err).not.toMatch(/clé/i);
   });
 
   it("sans moteur : message explicite avec les deux solutions", async () => {

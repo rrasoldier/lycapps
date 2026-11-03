@@ -44,7 +44,13 @@ const updater = new Updater(path.join(__dirname, "../.."), makeRunner({ loginShe
 let updateStatus: UpdateStatus | null = null;
 let updateBusy: string | null = null;
 const E2E = process.argv.includes("--e2e");
-if (process.platform === "darwin" && !E2E && !process.env.TERM) importLoginEnv(process.execPath);
+if (process.platform === "darwin" && !E2E && !process.env.TERM) {
+  importLoginEnv(process.execPath);
+  // Même si le shell de connexion n'a rien donné, les outils Homebrew (whisper-cli, git, node…) restent trouvables.
+  const have = (process.env.PATH ?? "").split(":");
+  const extra = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"].filter((p) => !have.includes(p));
+  process.env.PATH = [...have.filter(Boolean), ...extra].join(":");
+}
 
 // Le dossier de données garde son nom d'origine (« Cursor Launcher ») malgré le renommage en AlphaCris :
 // réglages, historique et clé API chiffrée restent donc lisibles sans migration.

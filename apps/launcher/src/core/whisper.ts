@@ -31,11 +31,20 @@ export function findModel(home: string = os.homedir()): string | null {
   return null;
 }
 
-const BIN_CANDIDATES = ["/opt/homebrew/bin/whisper-cli", "/usr/local/bin/whisper-cli"];
+/** Emplacements Homebrew (Apple Silicon puis Intel) : une app lancée par le Finder n'a pas ces dossiers dans son PATH. */
+export const BIN_CANDIDATES = [
+  "/opt/homebrew/bin/whisper-cli",
+  "/usr/local/bin/whisper-cli",
+  "/opt/homebrew/bin/whisper-cpp",
+  "/usr/local/bin/whisper-cpp",
+];
 
+/** Binaire à lancer : chemin réglé à la main, sinon emplacements fixes, sinon `whisper-cli` cherché dans le PATH. */
 export function resolveWhisperBin(configured: string, exists: (p: string) => boolean = fs.existsSync): string {
-  if (configured.trim()) return configured.trim();
-  return BIN_CANDIDATES.find((c) => exists(c)) ?? "whisper-cli";
+  const wanted = configured.trim();
+  if (wanted && (path.isAbsolute(wanted) || path.basename(wanted) !== wanted)) return wanted;
+  if (wanted && !["whisper-cli", "whisper-cpp"].includes(wanted)) return wanted;
+  return BIN_CANDIDATES.find((c) => exists(c)) ?? (wanted || "whisper-cli");
 }
 
 /** Vérifie (sans transcrire) que whisper.cpp et un modèle sont disponibles. */
@@ -46,7 +55,7 @@ export async function localWhisperStatus(cfg: LocalWhisperConfig, run: Runner, c
   const bin = resolveWhisperBin(cfg.bin);
   const found = path.isAbsolute(bin) ? { code: fs.existsSync(bin) ? 0 : 1 } : await run("which", [bin], { cwd, timeoutMs: 10_000 });
   if (found.code !== 0) return { ready: false, detail: `whisper.cpp introuvable (« ${bin} »). Installez-le avec : brew install whisper-cpp (ou ${MODEL_HINT.toLowerCase()})` };
-  return { ready: true, detail: `whisper.cpp local prêt (${path.basename(model)}).` };
+  return { ready: true, detail: `whisper.cpp local prêt (${bin}, modèle ${model}).` };
 }
 
 /** Transcrit un WAV (16 kHz mono) avec whisper.cpp, 100 % en local ; le fichier temporaire est effacé. */
